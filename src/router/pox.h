@@ -77,7 +77,7 @@ int chirouter_pox_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface,
 
 
 
-/* Do not use any of the structs of functions below */
+/* Do not use any of the structs or functions below */
 
 #define INCOMING_PACKET '0'
 #define IFACE_MSG '1'
@@ -89,7 +89,7 @@ typedef struct {
 } pox_packet;
 
 typedef struct {
-	uint8_t type; 
+	uint8_t type;
 	char* iface;
 	uint8_t* msg;
 	int msglen;
