@@ -75,7 +75,7 @@ struct ethhdr {
 typedef struct ethhdr ethhdr_t;
 
 /* Returns pointer to the start of a frame's payload */
-#define ETHER_PAYLOAD_START(frame) (frame + sizeof(ethhdr_t))
+#define ETHER_PAYLOAD_START(frame) (frame->raw + sizeof(ethhdr_t))
 
 
 #endif /* PROTOCOLS_ETHERNET_H_ */
