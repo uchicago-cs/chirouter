@@ -107,7 +107,7 @@ int chirouter_arp_process_pending_req(chirouter_ctx_t *ctx, chirouter_pending_ar
 
     return ARP_REQ_KEEP;
 }
-      
+
 
 
 /***** DO NOT MODIFY THE CODE BELOW *****/
@@ -214,7 +214,8 @@ int chirouter_arp_free_pending_req(chirouter_pending_arp_req_t *pending_req)
     list_iterator_stop(&pending_req->withheld_frames);
 
     list_destroy(&pending_req->withheld_frames);
-    
+    free(pending_req);
+
     return 0;
 }
 
