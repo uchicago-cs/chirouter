@@ -72,8 +72,10 @@
 #include "arp.h"
 #include "pox.h"
 #include "log.h"
+#include "pcap.h"
 
-#define USAGE "Usage: chirouter -r RTABLE_FILE -p POX_PORT [-s POX_HOST] [(-v|-vv|-vvv)]\n"
+
+#define USAGE "Usage: chirouter -r RTABLE_FILE -p POX_PORT [-s POX_HOST] [-c CAP_FILE] [(-v|-vv|-vvv)]\n"
 
 
 int main(int argc, char *argv[])
@@ -85,7 +87,7 @@ int main(int argc, char *argv[])
     char *rtable = NULL;
     char *pox_server_hostname = NULL;
     char *pox_server_port = NULL;
-    //char *cap_file = NULL;
+    char *cap_file = NULL;
     int verbosity = 0;
 
     /* Stop SIGPIPE from messing with our sockets */
@@ -110,9 +112,9 @@ int main(int argc, char *argv[])
         case 'p':
             pox_server_port = strdup(optarg);
             break;
-//        case 'c':
-//            cap_file = strdup(optarg);
-//            break;
+        case 'c':
+            cap_file = strdup(optarg);
+            break;
         case 'v':
             verbosity++;
             break;
@@ -183,6 +185,21 @@ int main(int argc, char *argv[])
     rc = chirouter_ctx_load_rtable(ctx, rtable);
     chilog(INFO, "Loaded routing table:");
     chirouter_ctx_log_rtable(ctx, INFO);
+
+    /* Create capture file */
+    if(cap_file)
+    {
+        ctx->pcap = fopen(cap_file,"w");
+
+        if(!ctx->pcap)
+        {
+            fprintf(stderr, USAGE);
+            perror("ERROR: Capture file could not be created.");
+            return EXIT_FAILURE;
+        }
+
+        chirouter_pcap_write_header(ctx);
+    }
 
     /* Connect to POX */
     chilog(INFO, "Connecting to POX on %s:%s", pox_server_hostname, pox_server_port);
