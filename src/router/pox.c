@@ -69,6 +69,8 @@
 #include "chirouter.h"
 #include "pox.h"
 #include "utils.h"
+#include "pcap.h"
+
 
 int chirouter_pox_process_single_message(chirouter_ctx_t *ctx, char *msg, size_t len);
 
@@ -367,6 +369,9 @@ int chirouter_pox_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_interfa
     frame->length = len;
     frame->in_interface = iface;
 
+    if(ctx->pcap)
+        chirouter_pcap_write_frame(ctx, iface, msg, len);
+
     chirouter_process_ethernet_frame(ctx, frame);
 
     free(frame->raw);
@@ -378,7 +383,6 @@ int chirouter_pox_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_interfa
 
 int chirouter_pox_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len)
 {
-
     if(len < ETHER_HDR_LEN)
     {
         chilog(ERROR, "Trying to send an Ethernet frame on interface %s that is %i bytes long (shorter than an Ethernet header)", iface->name, len);
@@ -395,6 +399,9 @@ int chirouter_pox_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface,
         chilog(ERROR, "Trying to send an Ethernet frame with source address that doesn't match that of interface %s", iface->name);
         return -1;
     }
+
+    if(ctx->pcap)
+        chirouter_pcap_write_frame(ctx, iface, msg, len);
 
     /* Create packet to send to POX */
     int msglen = strlen(iface->name)+len+1;

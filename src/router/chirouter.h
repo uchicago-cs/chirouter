@@ -206,6 +206,9 @@ typedef struct chirouter_ctx
 
     /* ARP thread */
     pthread_t arp_thread;
+
+    /* PCAP file to dump to */
+    FILE *pcap;
 } chirouter_ctx_t;
 
 
