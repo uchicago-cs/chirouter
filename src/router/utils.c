@@ -91,7 +91,7 @@ bool ethernet_addr_is_equal(uint8_t *addr1, uint8_t *addr2)
 {
     for (int i=0; i<ETHER_ADDR_LEN; i++)
     {
-        if(addr1[i] != addr1[i])
+        if(addr1[i] != addr2[i])
             return false;
     }
     return true;
