@@ -1,0 +1,81 @@
+{
+  "switches": [{"id": 1,
+                "type": "router",
+                "interfaces": [{"name": "eth1",
+                                  "ip": "192.168.1.1",
+                                "mask": "255.255.0.0"},
+
+                               {"name": "eth2",
+                                  "ip": "172.16.0.1",
+                                "mask": "255.255.240.0"},
+
+                               {"name": "eth3",
+                                  "ip": "10.0.0.1",
+                                "mask": "255.0.0.0"}],
+
+                "rtable": [{"destination": "192.168.0.0",
+                                "gateway": "0.0.0.0",
+                                   "mask": "255.255.0.0",
+                                 "metric": 100,
+                                  "iface": "eth1"},
+
+                           {"destination": "172.16.0.0",
+                                "gateway": "0.0.0.0",
+                                   "mask": "255.255.240.0",
+                                 "metric": 100,
+                                  "iface": "eth2"},
+
+                           {"destination": "10.0.0.0",
+                                "gateway": "0.0.0.0",
+                                   "mask": "255.0.0.0",
+                                 "metric": 100,
+                                  "iface": "eth3"}]},
+
+               {"id": 1001,
+                "type": "switch"},
+
+               {"id": 1002,
+                "type": "switch"},
+
+               {"id": 1003,
+                "type": "switch"}],
+
+  "hosts": [{"id": 2001,
+             "hostname": "server1",
+             "interfaces": [{"name": "eth0",
+                               "ip": "192.168.1.2",
+                             "mask": "255.255.0.0",
+                          "gateway": "192.168.1.1"}],
+             "attrs": ["httpd"]},
+
+            {"id": 2002,
+             "hostname": "server2",
+             "interfaces": [{"name": "eth0",
+                               "ip": "172.16.0.2",
+                             "mask": "255.255.240.0",
+                          "gateway": "172.16.0.1"}],
+             "attrs": ["httpd"]},
+
+            {"id": 3001,
+             "hostname": "client1",
+             "interfaces": [{"name": "eth0",
+                               "ip": "10.0.100.1",
+                             "mask": "255.0.0.0",
+                          "gateway": "10.0.0.1"}]},
+
+            {"id": 3002,
+             "hostname": "client2",
+             "interfaces": [{"name": "eth0",
+                               "ip": "10.0.100.2",
+                             "mask": "255.0.0.0",
+                          "gateway": "10.0.0.1"}]}],
+
+  "links": [ {"from": {"id": 1, "interface": "eth1"}, "to": {"id": 1001}},
+             {"from": {"id": 1, "interface": "eth2"}, "to": {"id": 1002}},
+             {"from": {"id": 1, "interface": "eth3"}, "to": {"id": 1003}},
+
+             {"from": {"id": 2001, "interface": "eth0"}, "to": {"id": 1001}},
+             {"from": {"id": 2002, "interface": "eth0"}, "to": {"id": 1002}},
+             {"from": {"id": 3001, "interface": "eth0"}, "to": {"id": 1003}},
+             {"from": {"id": 3002, "interface": "eth0"}, "to": {"id": 1003}} ]
+}

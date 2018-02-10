@@ -1,0 +1,58 @@
+#!/usr/bin/python2
+
+import os, sys
+import click
+
+
+dir_path = os.path.dirname(os.path.realpath(__file__))
+src_path = dir_path + '/src/python'
+sys.path.insert(0, src_path)
+print src_path
+# We also need to add the directory to PYTHONPATH, because
+# POX is launched as a separate process and depends on this.
+os.environ["PYTHONPATH"] = src_path + ":" + os.environ.get("PYTHONPATH", "")
+
+
+POX_LOCATION = dir_path + "/lib/pox"
+
+try:
+    import chirouter.simulator as simulator
+except ImportError, ie:
+	print ie
+	print "Could not import chirouter packages."
+	print "Please make sure you run this command from your chirouter directory."
+	sys.exit(1)
+
+def validate_host(ctx, param, value):
+    if value is None:
+        return None
+
+    try:
+        host, port = value.split(":")
+        port = int(port)
+        return (host, port)
+    except ValueError:
+        raise click.BadParameter("Host needs to be in format HOST:PORT")
+
+@click.command(name="run-mininet")
+@click.argument('topo_file', type=click.Path(exists=True))
+@click.option('--chirouter', callback=validate_host)
+@click.option('--pox', callback=validate_host)
+def cmd(topo_file, chirouter, pox):
+    if os.geteuid() != 0:
+        exit("Mininet must be run as root. Please try running with 'sudo'.")
+
+    topo_file = os.path.abspath(topo_file)
+    
+    if pox is None:
+        pox_location = POX_LOCATION
+    else:
+        pox_location = None
+
+    simulator.run(topo_file = topo_file, 
+                  pox = pox,
+                  chirouter = chirouter,
+                  pox_location = pox_location)
+
+if __name__ == "__main__":
+    cmd()

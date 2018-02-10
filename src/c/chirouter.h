@@ -67,12 +67,14 @@
 #include "protocols/icmp.h"
 #include "log.h"
 
+#define MAX_ROUTER_NAMELEN (8u)
 #define MAX_IFACE_NAMELEN (32u)
 #define MAX_NUM_INTERFACES (65536u)
 #define MAX_NUM_RTABLE_ENTRIES (65536u)
 #define ARPCACHE_SIZE (100u)
 #define ARPCACHE_ENTRY_TIMEOUT (15u)
 
+typedef struct server_ctx server_ctx_t;
 
 /* Represents a single Ethernet interface */
 typedef struct chirouter_interface
@@ -85,6 +87,11 @@ typedef struct chirouter_interface
 
     /* IP address */
     struct in_addr ip;
+
+    /*** NOTE: You should NOT use or modify the fields below ***/
+
+    /* Interface ID for POX controller */
+    uint8_t iface_id;
 
 } chirouter_interface_t;
 
@@ -115,16 +122,11 @@ typedef struct chirouter_rtable_entry
     /* Gateway ip to destination */
     struct in_addr gw;
 
+    /* Metric */
+    uint16_t metric;
+
     /* Interface that is connected to this subnet */
     chirouter_interface_t *interface;
-
-    /* Interface name. Note: DO NOT use this field.
-     * It is used internally to identify the entry before
-     * chirouter connects to POX. You should use only the
-     * "interface" field above to access the Ethernet interface
-     * for this routing table entry. */
-    char interface_name[MAX_IFACE_NAMELEN + 1];
-
 } chirouter_rtable_entry_t;
 
 
@@ -132,10 +134,10 @@ typedef struct chirouter_rtable_entry
 typedef struct chirouter_arpcache_entry
 {
     /* MAC address */
-    uint8_t         mac[ETHER_ADDR_LEN];
+    uint8_t mac[ETHER_ADDR_LEN];
 
     /* IP address */
-    struct in_addr  ip;
+    struct in_addr ip;
 
     /* Time when this entry was created */
     time_t time_added;
@@ -173,6 +175,9 @@ typedef struct chirouter_pending_arp_req
 /* The chirouter context. Contains all the router data structures */
 typedef struct chirouter_ctx
 {
+    /* Router name */
+    char name[MAX_ROUTER_NAMELEN + 1];
+
     /* Number of Ethernet interfaces */
     uint16_t num_interfaces;
 
@@ -201,23 +206,50 @@ typedef struct chirouter_ctx
 
     /*** NOTE: You should NOT use or modify the fields below ***/
 
-    /* Socket connected to POX controller */
-    int pox_socket;
-
     /* ARP thread */
     pthread_t arp_thread;
 
-    /* PCAP file to dump to */
-    FILE *pcap;
+    /* Used during configuration of router */
+    uint16_t max_interfaces;
+    uint16_t max_rtable_entries;
+
+    /* Router ID for POX controller */
+    uint8_t r_id;
+
+    /* Server context */
+    server_ctx_t *server;
 } chirouter_ctx_t;
+
+
+/*
+ * chirouter_send_frame - Send an Ethernet frame on one of the router's interfaces
+ *
+ * ctx: Router context
+ *
+ * iface: Interface to send the frame on.
+ *
+ * msg: Pointer to the frame (including the Ethernet header and payload)
+ *
+ * len: Length in bytes of the frame.
+ *
+ * Returns:
+ *
+ *   0 on success,
+ *
+ *   1 if a non-critical error happens
+ *
+ *   -1 if a critical error happens
+ *
+ */
+int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len);
 
 
 /* Note: You should not call any of the functions below */
 
-int chirouter_ctx_init(chirouter_ctx_t **ctx);
+int chirouter_ctx_init(chirouter_ctx_t *ctx);
 int chirouter_ctx_load_rtable(chirouter_ctx_t *ctx, const char* rtable_filename);
 int chirouter_ctx_add_iface(chirouter_ctx_t *ctx, const char* iface, uint8_t mac[ETHER_ADDR_LEN], struct in_addr *ip);
-void chirouter_ctx_log_rtable(chirouter_ctx_t *ctx, loglevel_t loglevel);
+void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel);
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx);
 
 int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx, ethernet_frame_t *frame);

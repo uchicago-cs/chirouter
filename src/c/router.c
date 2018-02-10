@@ -1,7 +1,9 @@
 /*
  *  chirouter - A simple, testable IP router
  *
- *  Functions to communicate with POX
+ *  This module contains the actual functionality of the router.
+ *  When the router receives an Ethernet frame, it is handled by
+ *  the chirouter_process_ethernet_frame() function.
  *
  */
 
@@ -16,7 +18,6 @@
  * possible, we have tried to provide the exact attribution for such code.
  * Any omissions are not intentional and will be gladly corrected if
  * you contact us at borja@cs.uchicago.edu
- *
  */
 
 /*
@@ -51,60 +52,57 @@
  *
  */
 
-#ifndef __POX_H
-#define __POX_H
+#include <stdio.h>
+#include <assert.h>
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <string.h>
+#include <stdlib.h>
+
 #include "chirouter.h"
+#include "arp.h"
+#include "utils.h"
 
 
 /*
- * chirouter_pox_send_frame - Send an Ethernet frame on one of the router's interfaces
+ * chirouter_process_ethernet_frame - Process a single inbound Ethernet frame
+ *
+ * This function will get called every time an Ethernet frame is received by
+ * a router. This function receives the router context for the router that
+ * received the frame, and the inbound frame (the ethernet_frame_t struct
+ * contains a pointer to the interface where the frame was received).
+ * Take into account that the chirouter code will free the frame after this
+ * function returns so, if you need to persist a frame (e.g., because you're
+ * adding it to a list of withheld frames in the pending ARP request list)
+ * you must make a deep copy of the frame.
+ *
+ * chirouter can manage multiple routers at once, but does so in a single
+ * thread. i.e., it is guaranteed that this function is always called
+ * sequentially, and that there will not be concurrent calls to this
+ * function. If two routers receive Ethernet frames "at the same time",
+ * they will be ordered arbitrarily and processed sequentially, not
+ * concurrently (and with each call receiving a different router context)
  *
  * ctx: Router context
  *
- * iface: Interface to send the frame on.
+ * frame: Inbound Ethernet frame
  *
- * msg: Pointer to the frame (including the Ethernet header and payload)
+ * Returns:
+ *   0 on success,
  *
- * len: Length in bytes of the frame.
+ *   1 if a non-critical error happens
  *
- * Returns: 0 on success, 1 on error.
+ *   -1 if a critical error happens
+ *
+ *   Note: In the event of a critical error, the entire router will shut down and exit.
+ *         You should only return -1 for issues that would prevent the router from
+ *         continuing to run normally. Return 1 to indicate that the frame could
+ *         not be processed, but that subsequent frames can continue to be processed.
  */
-int chirouter_pox_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len);
+int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx, ethernet_frame_t *frame)
+{
+    /* Your code goes here */
+
+    return 0;
+}
 
 
-
-/* Do not use any of the structs of functions below */
-
-#define INCOMING_PACKET '0'
-#define IFACE_MSG '1'
-#define IFACE_DONE '2'
-
-
-typedef struct {
-	uint8_t type; //comm msg type.
-} pox_packet;
-
-typedef struct {
-	uint8_t type; 
-	char* iface;
-	uint8_t* msg;
-	int msglen;
-} incoming_ethernet_packet;
-
-typedef struct {
-	uint8_t type;
-	char* iface;
-	unsigned char addr[ETHER_ADDR_LEN];
-	uint32_t ip;
-} iface_defn_packet;
-
-int chirouter_pox_connect(chirouter_ctx_t *ctx, const char* hostname, const char* port);
-int chirouter_pox_process_messages(chirouter_ctx_t *ctx);
-int chirouter_pox_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len);
-
-
-#endif

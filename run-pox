@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [[ ! ( $# -eq 1 || $# -eq 3 ) ]]; then
+    echo "Usage: $0 TOPOLOGY_FILE [CHIROUTER_HOST CHIROUTER_PORT]"
+    exit 1
+fi
+
+TOPOLOGY_FILE=$1
+
+if [[ $# -eq 1 ]]; then
+    CHIROUTER_PARAMS="";
+else
+    CHIROUTER_PARAMS="--chirouter-host=$2 --chirouter-port=$3"
+fi
+
+export PYTHONPATH=$(pwd)/src/python:$PYTHONPATH
+
+./lib/pox/pox.py log --format="[%(asctime)s] %(levelname)-8s %(module)s %(message)s"\
+                 log.level --DEBUG --packet=CRITICAL \
+                 chirouter.pox_controller \
+                 --topo-file=$TOPOLOGY_FILE $CHIROUTER_PARAMS 
+                 

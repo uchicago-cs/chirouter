@@ -61,6 +61,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
@@ -69,26 +70,23 @@
 #include <getopt.h>
 
 #include "chirouter.h"
+#include "server.h"
 #include "arp.h"
-#include "pox.h"
 #include "log.h"
 #include "pcap.h"
 
-
-#define USAGE "Usage: chirouter -r RTABLE_FILE -p POX_PORT [-s POX_HOST] [-c CAP_FILE] [(-v|-vv|-vvv)]\n"
-
+#define USAGE "Usage: chirouter [-p PORT] [-c CAP_FILE] [(-v|-vv|-vvv)]\n"
 
 int main(int argc, char *argv[])
 {
     int rc;
-    chirouter_ctx_t *ctx;
+    server_ctx_t *ctx;
     sigset_t new;
     int opt;
-    char *rtable = NULL;
-    char *pox_server_hostname = NULL;
-    char *pox_server_port = NULL;
-    char *cap_file = NULL;
+    char *port = "23300";
+    /* char *cap_file = NULL; */
     int verbosity = 0;
+    bool debug = false;
 
     /* Stop SIGPIPE from messing with our sockets */
     sigemptyset (&new);
@@ -100,23 +98,20 @@ int main(int argc, char *argv[])
     }
 
     /* Process command-line arguments */
-    while ((opt = getopt(argc, argv, "r:s:p:c:vh")) != -1)
+    while ((opt = getopt(argc, argv, "p:c:vdh")) != -1)
         switch (opt)
         {
-        case 'r':
-            rtable = strdup(optarg);
-            break;
-        case 's':
-            pox_server_hostname = strdup(optarg);
-            break;
         case 'p':
-            pox_server_port = strdup(optarg);
+            port = strdup(optarg);
             break;
-        case 'c':
+        /*case 'c':
             cap_file = strdup(optarg);
-            break;
+            break;*/
         case 'v':
             verbosity++;
+            break;
+        case 'd':
+            debug = true;
             break;
         case 'h':
             printf(USAGE);
@@ -126,32 +121,6 @@ int main(int argc, char *argv[])
             fprintf(stderr, "ERROR: Unknown option -%c\n", opt);
             return EXIT_FAILURE;
         }
-
-    if(!rtable)
-    {
-        fprintf(stderr, USAGE);
-        fprintf(stderr, "ERROR: Must specify routing table file.\n");
-        return EXIT_FAILURE;
-    }
-
-    if(access(rtable, R_OK) != 0)
-    {
-        fprintf(stderr, USAGE);
-        fprintf(stderr, "ERROR: Routing table file %s does not exist or cannot be read.\n", rtable);
-        return EXIT_FAILURE;
-    }
-
-    if(!pox_server_port)
-    {
-        fprintf(stderr, USAGE);
-        fprintf(stderr, "ERROR: Must specify the port of the POX server.\n");
-        return EXIT_FAILURE;
-    }
-
-    if(!pox_server_hostname)
-    {
-        pox_server_hostname = strdup("localhost");
-    }
 
     /* Set logging level based on verbosity */
     switch(verbosity)
@@ -173,58 +142,30 @@ int main(int argc, char *argv[])
         break;
     }
 
-    /* Initialize chirouter context */
-    rc = chirouter_ctx_init(&ctx);
+    /* Initialize server context */
+    rc = chirouter_server_ctx_init(&ctx);
     if(rc)
     {
-        fprintf(stderr, "ERROR: Could not allocate memory for chirouter context\n");
+        perror("ERROR: Could not allocate memory for server context");
         return EXIT_FAILURE;
     }
 
-    /* Load and print routing table */
-    rc = chirouter_ctx_load_rtable(ctx, rtable);
-    chilog(INFO, "Loaded routing table:");
-    chirouter_ctx_log_rtable(ctx, INFO);
-
-    /* Create capture file */
-    if(cap_file)
-    {
-        ctx->pcap = fopen(cap_file,"w");
-
-        if(!ctx->pcap)
-        {
-            fprintf(stderr, USAGE);
-            perror("ERROR: Capture file could not be created.");
-            return EXIT_FAILURE;
-        }
-
-        chirouter_pcap_write_header(ctx);
-    }
-
-    /* Connect to POX */
-    chilog(INFO, "Connecting to POX on %s:%s", pox_server_hostname, pox_server_port);
-
-    rc = chirouter_pox_connect(ctx, pox_server_hostname, pox_server_port);
+    ctx->debug = debug;
+    rc = chirouter_server_setup(ctx, port);
     if(rc)
     {
-        chilog(CRITICAL, "Could not connect to POX");
-        return EXIT_FAILURE;
-    }
-    chilog(INFO, "Connected to POX.");
-
-
-    pthread_create(&ctx->arp_thread, NULL, chirouter_arp_process, ctx);
-
-
-    rc = chirouter_pox_process_messages(ctx);
-    if(rc)
-    {
-        chilog(CRITICAL, "Error while receiving messages from POX");
+        perror("ERROR: Could not start chirouter server.");
         return EXIT_FAILURE;
     }
 
-    chirouter_ctx_destroy(ctx);
+    rc = chirouter_server_run(ctx);
+
+    chirouter_server_ctx_destroy(ctx);
 
     return EXIT_SUCCESS;
 }
+
+
+
+
 

@@ -1,9 +1,7 @@
 /*
  *  chirouter - A simple, testable IP router
  *
- *  This module contains the actual functionality of the router.
- *  When the router receives an Ethernet frame, it is handled by
- *  the chirouter_process_ethernet_frame() function.
+ *  This module provides functions to manage the chirouter context.
  *
  */
 
@@ -53,44 +51,78 @@
  */
 
 #include <stdio.h>
-#include <assert.h>
-
-#include <string.h>
+#include <unistd.h>
 #include <stdlib.h>
-
+#include <string.h>
 #include "chirouter.h"
-#include "pox.h"
-#include "arp.h"
-#include "utils.h"
+#include "log.h"
 
 
-/*
- * chirouter_process_ethernet_frame - Process a single inbound Ethernet frame
- *
- * This function will get called every time an Ethernet frame is received by
- * the router. The router uses a single thread to process inbound Ethernet
- * frames, so you can assume that chirouter_process_ethernet_frame is always
- * called sequentially (there will never be concurrent calls to this function).
- *
- * This function receives the router context and the inbound frame
- * (the ethernet_frame_t struct contains a pointer to the interface
- * where the frame was received). Take into account that the chirouter
- * code will free the frame after this function returns so, if you
- * need to persist a frame (e.g., because you're adding it to a list of
- * withheld frames in the pending ARP request list) you must make
- * a deep copy of the frame.
- *
- * ctx: Router context
- *
- * frame: Inbound Ethernet frame
- *
- * Returns: 0 on success, 1 if an error happens.
- */
-int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx, ethernet_frame_t *frame)
+
+int chirouter_ctx_init(chirouter_ctx_t *ctx)
 {
-    /* Your code goes here */
+    pthread_mutex_init(&ctx->lock_arp, NULL);
+    ctx->pending_arp_reqs = malloc(sizeof(list_t));
+    list_init(ctx->pending_arp_reqs);
 
     return 0;
 }
 
+void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
+{
+    chilog(loglevel, "ROUTER %s", ctx->name);
+    chilog(loglevel, "");
 
+    if(ctx->num_interfaces == 0)
+    {
+        chilog(loglevel, "Router has no interfaces");
+    }
+    else
+    {
+        for(int i=0; i < ctx->num_interfaces; i++)
+        {
+            chirouter_interface_t *iface = &ctx->interfaces[i];
+
+            chilog(loglevel, "%s %02X:%02X:%02X:%02X:%02X:%02X %s",iface->name,
+                             iface->mac[0], iface->mac[1], iface->mac[2],
+                             iface->mac[3], iface->mac[4], iface->mac[5],
+                             inet_ntoa(iface->ip));
+        }
+    }
+
+    chilog(loglevel, "");
+
+    /* Routing table logging code adapted from Simple Router's sr_print_routing_table()
+     * in sr_rc.c (Author: casado@stanford.edu) */
+
+    if(ctx->num_rtable_entries == 0)
+    {
+        chilog(loglevel, "Routing table is empty.");
+    }
+    else
+    {
+        chilog(loglevel, "%-16s%-16s%-16s%-16s", "Destination", "Gateway", "Mask", "Iface");
+
+        for(int i=0; i < ctx->num_rtable_entries; i++)
+        {
+            chirouter_rtable_entry_t *entry = &ctx->routing_table[i];
+
+            char* dest = strdup(inet_ntoa(entry->dest));
+            char* gw = strdup(inet_ntoa(entry->gw));
+            char* mask = strdup(inet_ntoa(entry->mask));
+
+            chilog(loglevel, "%-16s%-16s%-16s%-16s", dest, gw, mask, entry->interface->name);
+
+            free(dest);
+            free(gw);
+            free(mask);
+        }
+    }
+}
+
+
+int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
+{
+    /* TODO */
+    return 0;
+}

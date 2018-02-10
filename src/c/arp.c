@@ -71,7 +71,6 @@
 #include <stdbool.h>
 #include "arp.h"
 #include "chirouter.h"
-#include "pox.h"
 #include "utils.h"
 
 #define ARP_REQ_KEEP (0)

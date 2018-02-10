@@ -1,19 +1,19 @@
-OBJS = src/router/main.o src/router/ctx.o src/router/log.o src/router/pox.o src/router/router.o \
-       src/router/arp.o src/router/pcap.o src/router/utils.o src/router/simclist.o
+OBJS = src/c/main.o src/c/server.o src/c/ctx.o src/c/log.o src/c/router.o \
+       src/c/arp.o src/c/utils.o src/c/simclist.o
 DEPS = $(OBJS:.o=.d)
 CC = gcc
 CFLAGS = -g3 -Wall -fpic -std=gnu99 -MMD -MP
 BIN = ./chirouter
 LDLIBS = -lm -pthread
 
-.PHONY: all clean tests grade
+.PHONY: all clean
 
 all: $(BIN)
 	
 $(BIN): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) -o$(BIN) $(LDLIBS)
 	
-%.d: %.c
-
 clean:
-	-rm -f $(OBJS) $(BIN) src/*.d
+	-rm -f $(OBJS) $(BIN) $(DEPS)
+
+-include $(DEPS)
