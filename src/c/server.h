@@ -31,7 +31,7 @@
  */
 
 /*
- *  Copyright (c) 2016, The University of Chicago
+ *  Copyright (c) 2016-2018, The University of Chicago
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -96,7 +96,7 @@
  *  Used to perform a simple handshake with the POX controller. When
  *  the POX controller connects to chirouter, it must send a HELLO
  *  message with Subtype = 2 (To Router). chirouter will respond
- *  with a HELLO message with Subtype = 1 (To Router)
+ *  with a HELLO message with Subtype = 1 (From Router)
  *
  *
  *
@@ -305,7 +305,6 @@ typedef enum
 /* Message subtypes */
 typedef enum
 {
-    /* Hello subtypes */
     NONE = 0,
     FROM_ROUTER = 1,
     TO_ROUTER = 2
@@ -333,11 +332,6 @@ typedef struct server_ctx
 
     /* Server state */
     server_state_t state;
-
-    /* Debug mode.
-     * In debug mode, we just print out the messages received
-     * from POX but don't actually process them. */
-    bool debug;
 
     /* Number of routers */
     uint16_t max_routers;

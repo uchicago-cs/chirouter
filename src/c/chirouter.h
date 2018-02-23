@@ -21,7 +21,7 @@
  */
 
 /*
- *  Copyright (c) 2016, The University of Chicago
+ *  Copyright (c) 2016-2018, The University of Chicago
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -74,7 +74,9 @@
 #define ARPCACHE_SIZE (100u)
 #define ARPCACHE_ENTRY_TIMEOUT (15u)
 
+
 typedef struct server_ctx server_ctx_t;
+
 
 /* Represents a single Ethernet interface */
 typedef struct chirouter_interface
@@ -91,7 +93,10 @@ typedef struct chirouter_interface
     /*** NOTE: You should NOT use or modify the fields below ***/
 
     /* Interface ID for POX controller */
-    uint8_t iface_id;
+    uint8_t pox_iface_id;
+
+    /* Interface ID for capture file */
+    uint32_t pcap_iface_id;
 
 } chirouter_interface_t;
 

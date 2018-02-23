@@ -2,7 +2,7 @@
  *  chirouter - A simple, testable IP router
  *
  *  This module contains the actual functionality of the router.
- *  When the router receives an Ethernet frame, it is handled by
+ *  When a router receives an Ethernet frame, it is handled by
  *  the chirouter_process_ethernet_frame() function.
  *
  */
@@ -21,7 +21,7 @@
  */
 
 /*
- *  Copyright (c) 2016, The University of Chicago
+ *  Copyright (c) 2016-2018, The University of Chicago
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without

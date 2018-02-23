@@ -24,7 +24,7 @@
  */
 
 /*
- *  Copyright (c) 2016, The University of Chicago
+ *  Copyright (c) 2016-2018, The University of Chicago
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -68,6 +68,7 @@
 #include "server.h"
 #include "log.h"
 #include "utils.h"
+#include "pcap.h"
 
 /* Forward declarations */
 int chirouter_server_process_messages(server_ctx_t *ctx);
@@ -198,7 +199,7 @@ int chirouter_server_send_msg(server_ctx_t *ctx, chirouter_msg_t *msg)
  * chirouter_server_run - Run the chirouter server
  *
  * The chirouter server is designed to handle only one connection at a time,
- * since it should only be associated with one controller at any
+ * since it should only be associated with one controller at any given point.
  *
  * ctx: Server context
  *
@@ -456,7 +457,7 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
 
         chilog(TRACE, "Processing Interface ID %d in Router ID %d",  msg->interface.iface_id,  msg->interface.r_id);
 
-        iface->iface_id = msg->interface.iface_id;
+        iface->pox_iface_id = msg->interface.iface_id;
 
         int name_len = payload_len - 12;
         memcpy(iface->name, msg->interface.name, name_len);
@@ -533,6 +534,12 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
 
             chirouter_ctx_log(&ctx->routers[i], INFO);
             chilog(INFO, "--------------------------------------------------------------------------------");
+        }
+
+        if(ctx->pcap)
+        {
+            chirouter_pcap_write_section_header(ctx);
+            chirouter_pcap_write_interfaces(ctx);
         }
 
         ctx->state = RUNNING;
@@ -662,6 +669,9 @@ int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_inte
     frame->length = len;
     frame->in_interface = iface;
 
+    if(ctx->server->pcap)
+        chirouter_pcap_write_frame(ctx, iface, msg, len, PCAP_INBOUND);
+
     rc = chirouter_process_ethernet_frame(ctx, frame);
 
     free(frame->raw);
@@ -703,13 +713,16 @@ int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uin
         return 1;
     }
 
+    if(ctx->server->pcap)
+        chirouter_pcap_write_frame(ctx, iface, frame, frame_len, PCAP_OUTBOUND);
+
     chirouter_msg_t msg;
 
     msg.type = MSG_TYPE_ETHERNET_FRAME;
     msg.subtype = FROM_ROUTER;
     msg.payload_length = htons(4+frame_len);
     msg.ethernet.r_id = ctx->r_id;
-    msg.ethernet.iface_id = iface->iface_id;
+    msg.ethernet.iface_id = iface->pox_iface_id;
     msg.ethernet.frame_len = htons(frame_len);
     memcpy(msg.ethernet.frame, frame, frame_len);
 
@@ -750,7 +763,7 @@ int chirouter_server_ctx_free_routers(server_ctx_t *ctx)
 
 
 /*
- * server_ctx_t - Frees server resources
+ * chirouter_server_ctx_destroy - Frees server resources
  *
  * ctx: Server context
  *

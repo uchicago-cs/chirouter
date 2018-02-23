@@ -19,7 +19,7 @@
  */
 
 /*
- *  Copyright (c) 2016, The University of Chicago
+ *  Copyright (c) 2016-2018, The University of Chicago
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -58,16 +58,37 @@
 #include "log.h"
 
 
-
+/*
+ * chirouter_ctx_init - Initializes a router context
+ *
+ * ctx: Router context
+ *
+ * Returns: 0 on success, -1 if an error happens.
+ */
 int chirouter_ctx_init(chirouter_ctx_t *ctx)
 {
     pthread_mutex_init(&ctx->lock_arp, NULL);
     ctx->pending_arp_reqs = malloc(sizeof(list_t));
-    list_init(ctx->pending_arp_reqs);
+
+    if(ctx->pending_arp_reqs == NULL)
+        return -1;
+
+    if(list_init(ctx->pending_arp_reqs) == -1)
+        return -1;
 
     return 0;
 }
 
+
+/*
+ * chirouter_ctx_log - Log contents of a router context
+ *
+ * ctx: Router context
+ *
+ * loglevel: Log level
+ *
+ * Returns: 0 on success, -1 if an error happens.
+ */
 void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
 {
     chilog(loglevel, "ROUTER %s", ctx->name);
@@ -121,8 +142,19 @@ void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
 }
 
 
+/*
+ * chirouter_ctx_destroy - Frees router resources
+ *
+ * ctx: Router context
+ *
+ * Returns: 0 on success, -1 if an error happens.
+ *
+ */
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 {
-    /* TODO */
+    pthread_mutex_destroy(&ctx->lock_arp);
+    list_destroy(ctx->pending_arp_reqs);
+    free(ctx->pending_arp_reqs);
+
     return 0;
 }
