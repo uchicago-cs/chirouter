@@ -69,6 +69,8 @@
 #include "log.h"
 #include "utils.h"
 #include "pcap.h"
+#include "arp.h"
+
 
 /* Forward declarations */
 int chirouter_server_process_messages(server_ctx_t *ctx);
@@ -533,6 +535,7 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
             }
 
             chirouter_ctx_log(&ctx->routers[i], INFO);
+            pthread_create(&r->arp_thread, NULL, chirouter_arp_process, r);
             chilog(INFO, "--------------------------------------------------------------------------------");
         }
 
