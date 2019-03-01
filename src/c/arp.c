@@ -72,6 +72,7 @@
 #include "arp.h"
 #include "chirouter.h"
 #include "utils.h"
+#include "utlist.h"
 
 #define ARP_REQ_KEEP (0)
 #define ARP_REQ_REMOVE (1)
@@ -150,17 +151,14 @@ int chirouter_arp_cache_add(chirouter_ctx_t *ctx, struct in_addr *ip, uint8_t *m
 /* See arp.h */
 chirouter_pending_arp_req_t* chirouter_arp_pending_req_lookup(chirouter_ctx_t *ctx, struct in_addr *ip)
 {
-    list_iterator_start(ctx->pending_arp_reqs);
-    while(list_iterator_hasnext(ctx->pending_arp_reqs))
+    chirouter_pending_arp_req_t *pending_req;
+    DL_FOREACH(ctx->pending_arp_reqs, pending_req)
     {
-        chirouter_pending_arp_req_t *pending_req = list_iterator_next(ctx->pending_arp_reqs);
         if(pending_req->ip.s_addr == ip->s_addr)
         {
-            list_iterator_stop(ctx->pending_arp_reqs);
             return pending_req;
         }
     }
-    list_iterator_stop(ctx->pending_arp_reqs);
 
     return NULL;
 }
@@ -169,16 +167,15 @@ chirouter_pending_arp_req_t* chirouter_arp_pending_req_lookup(chirouter_ctx_t *c
 /* See arp.h */
 chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx, struct in_addr *ip, chirouter_interface_t *iface)
 {
-    chirouter_pending_arp_req_t *pending_req = malloc(sizeof(chirouter_pending_arp_req_t));
+    chirouter_pending_arp_req_t *pending_req = calloc(1, sizeof(chirouter_pending_arp_req_t));
 
     memcpy(&pending_req->ip, ip, sizeof(struct in_addr));
     pending_req->times_sent = 0;
     pending_req->last_sent = time(NULL);
     pending_req->out_interface = iface;
+    pending_req->withheld_frames = NULL;
 
-    list_init(&pending_req->withheld_frames);
-
-    list_append(ctx->pending_arp_reqs, pending_req);
+    DL_APPEND(ctx->pending_arp_reqs, pending_req);
 
     return pending_req;
 }
@@ -187,14 +184,17 @@ chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx,
 /* See arp.h */
 int chirouter_arp_pending_req_add_frame(chirouter_ctx_t *ctx, chirouter_pending_arp_req_t *pending_req, ethernet_frame_t *frame)
 {
-    ethernet_frame_t *frame_copy = malloc(sizeof(ethernet_frame_t));
+    ethernet_frame_t *frame_copy = calloc(1, sizeof(ethernet_frame_t));
 
-    frame_copy->raw = malloc(frame->length);
+    frame_copy->raw = calloc(1, frame->length);
     memcpy(frame_copy->raw, frame->raw, frame->length);
     frame_copy->length = frame->length;
     frame_copy->in_interface = frame->in_interface;
 
-    list_append(&pending_req->withheld_frames, frame_copy);
+    withheld_frame_t *withheld_frame = calloc(1, sizeof(withheld_frame_t));
+    withheld_frame->frame = frame_copy;
+
+    DL_APPEND(pending_req->withheld_frames, withheld_frame);
 
     return 0;
 }
@@ -203,17 +203,16 @@ int chirouter_arp_pending_req_add_frame(chirouter_ctx_t *ctx, chirouter_pending_
 /* See arp.h */
 int chirouter_arp_free_pending_req(chirouter_pending_arp_req_t *pending_req)
 {
-    list_iterator_start(&pending_req->withheld_frames);
-    while (list_iterator_hasnext(&pending_req->withheld_frames))
+    withheld_frame_t *withheld_frame, *tmp;
+    DL_FOREACH_SAFE(pending_req->withheld_frames, withheld_frame, tmp)
     {
-        ethernet_frame_t *frame = (ethernet_frame_t *) list_iterator_next(&pending_req->withheld_frames);
-        free(frame->raw);
-        free(frame);
-    }
-    list_iterator_stop(&pending_req->withheld_frames);
+        free(withheld_frame->frame->raw);
+        free(withheld_frame->frame);
 
-    list_destroy(&pending_req->withheld_frames);
-    
+        DL_DELETE(pending_req->withheld_frames, withheld_frame);
+        free(withheld_frame);
+    }
+
     return 0;
 }
 
@@ -241,37 +240,21 @@ void* chirouter_arp_process(void *args)
         }
 
         /* Process pending ARP requests */
-        if (list_size(ctx->pending_arp_reqs) > 0)
+        if (ctx->pending_arp_reqs != NULL)
         {
-            /*  Unfortunately, simclist doesn't allow entries to be deleted
-             *  while iterating over the list, so instead we create
-             *  a new list with the pending requests we want to keep. */
-            list_t *new_list = malloc(sizeof(list_t));
-            list_init(new_list);
-            list_iterator_start(ctx->pending_arp_reqs);
-            while (list_iterator_hasnext(ctx->pending_arp_reqs))
+            chirouter_pending_arp_req_t *pending_req, *tmp;
+            DL_FOREACH_SAFE(ctx->pending_arp_reqs, pending_req, tmp)
             {
                 int rc;
-                chirouter_pending_arp_req_t *pending_req;
 
-                pending_req = (chirouter_pending_arp_req_t *) list_iterator_next(ctx->pending_arp_reqs);
                 rc = chirouter_arp_process_pending_req(ctx, pending_req);
 
-                if(rc == ARP_REQ_KEEP)
-                {
-                    rc = list_append(new_list, pending_req);
-                }
-                else
+                if(rc == ARP_REQ_REMOVE)
                 {
                     chirouter_arp_free_pending_req(pending_req);
+                    DL_DELETE(ctx->pending_arp_reqs, pending_req);
                 }
             }
-            list_iterator_stop(ctx->pending_arp_reqs);
-
-            /* Swap list */
-            list_destroy(ctx->pending_arp_reqs);
-            free(ctx->pending_arp_reqs);
-            ctx->pending_arp_reqs = new_list;
        }
 
         pthread_mutex_unlock(&(ctx->lock_arp));

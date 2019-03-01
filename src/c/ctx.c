@@ -56,6 +56,7 @@
 #include <string.h>
 #include "chirouter.h"
 #include "log.h"
+#include "utlist.h"
 
 
 /*
@@ -68,13 +69,7 @@
 int chirouter_ctx_init(chirouter_ctx_t *ctx)
 {
     pthread_mutex_init(&ctx->lock_arp, NULL);
-    ctx->pending_arp_reqs = malloc(sizeof(list_t));
-
-    if(ctx->pending_arp_reqs == NULL)
-        return -1;
-
-    if(list_init(ctx->pending_arp_reqs) == -1)
-        return -1;
+    ctx->pending_arp_reqs = NULL;
 
     return 0;
 }
@@ -153,7 +148,12 @@ void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 {
     pthread_mutex_destroy(&ctx->lock_arp);
-    list_destroy(ctx->pending_arp_reqs);
+
+    chirouter_pending_arp_req_t *pending_req, *tmp;
+    DL_FOREACH_SAFE(ctx->pending_arp_reqs, pending_req, tmp)
+    {
+        DL_DELETE(ctx->pending_arp_reqs, pending_req);
+    }
     free(ctx->pending_arp_reqs);
 
     return 0;

@@ -216,7 +216,7 @@ int chirouter_server_run(server_ctx_t *ctx)
     char port[NI_MAXSERV];
     socklen_t sa_size = sizeof(struct sockaddr_storage);
 
-    client_addr = malloc(sa_size);
+    client_addr = calloc(1, sa_size);
     while (1)
     {
         chilog(INFO, "Waiting for connection from controller...");
@@ -665,9 +665,9 @@ int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_inte
     }
 
     /* Create Ethernet frame struct */
-    ethernet_frame_t *frame = malloc(sizeof(ethernet_frame_t));
+    ethernet_frame_t *frame = calloc(1, sizeof(ethernet_frame_t));
 
-    frame->raw = malloc(len);
+    frame->raw = calloc(1, len);
     memcpy(frame->raw, msg, len);
     frame->length = len;
     frame->in_interface = iface;

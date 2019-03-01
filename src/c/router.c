@@ -61,6 +61,7 @@
 #include "chirouter.h"
 #include "arp.h"
 #include "utils.h"
+#include "utlist.h"
 
 
 /*
