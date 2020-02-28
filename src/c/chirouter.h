@@ -154,13 +154,14 @@ typedef struct chirouter_arpcache_entry
 } chirouter_arpcache_entry_t;
 
 
-/* Withheld Ethernet frame in pending ARP request */
+/* Used to store withheld frames (using a linked list)
+ * in a pending ARP request. */
 typedef struct withheld_frame
 {
-    /* The withheld frame */
+    /* Pointer to the withheld Ethernet frame */
     ethernet_frame_t *frame;
 
-    /* Pointers for utlist */
+    /* List pointers */
     struct withheld_frame *prev;
     struct withheld_frame *next;
 } withheld_frame_t;
@@ -180,14 +181,14 @@ typedef struct chirouter_pending_arp_req
     uint32_t times_sent;
     time_t last_sent;
 
-    /* Pointers for utlist */
-    struct chirouter_pending_arp_req *prev;
-    struct chirouter_pending_arp_req *next;
-
     /* List of Ethernet frames containing IP datagrams destined
      * to "ip", but which we cannot yet send because we do not
      * know the MAC address corresponding to that IP address */
-    withheld_frame_t* withheld_frames;
+    withheld_frame_t *withheld_frames;
+
+    /* List pointers */
+    struct chirouter_pending_arp_req *prev;
+    struct chirouter_pending_arp_req *next;
 } chirouter_pending_arp_req_t;
 
 
@@ -216,6 +217,7 @@ typedef struct chirouter_ctx
 
     /* List of pending ARP requests */
     chirouter_pending_arp_req_t* pending_arp_reqs;
+
 
     /* Mutex to protect both the ARP cache and the list of
      * pending ARP requests. Lock this mutex if *either* of

@@ -54,10 +54,10 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include "utlist.h"
 #include "chirouter.h"
 #include "log.h"
-#include "utlist.h"
-
+#include "arp.h"
 
 /*
  * chirouter_ctx_init - Initializes a router context
@@ -69,6 +69,7 @@
 int chirouter_ctx_init(chirouter_ctx_t *ctx)
 {
     pthread_mutex_init(&ctx->lock_arp, NULL);
+
     ctx->pending_arp_reqs = NULL;
 
     return 0;
@@ -149,12 +150,14 @@ int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 {
     pthread_mutex_destroy(&ctx->lock_arp);
 
-    chirouter_pending_arp_req_t *pending_req, *tmp;
-    DL_FOREACH_SAFE(ctx->pending_arp_reqs, pending_req, tmp)
+    chirouter_pending_arp_req_t *elt, *tmp;
+
+    DL_FOREACH_SAFE(ctx->pending_arp_reqs, elt, tmp)
     {
-        DL_DELETE(ctx->pending_arp_reqs, pending_req);
+        chirouter_arp_free_pending_req(elt);
+        DL_DELETE(ctx->pending_arp_reqs, elt);
+        free(elt);
     }
-    free(ctx->pending_arp_reqs);
 
     return 0;
 }

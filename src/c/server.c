@@ -667,7 +667,7 @@ int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_inte
     /* Create Ethernet frame struct */
     ethernet_frame_t *frame = calloc(1, sizeof(ethernet_frame_t));
 
-    frame->raw = calloc(1, len);
+    frame->raw = calloc(len, 1);
     memcpy(frame->raw, msg, len);
     frame->length = len;
     frame->in_interface = iface;
