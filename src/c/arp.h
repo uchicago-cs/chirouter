@@ -160,10 +160,22 @@ chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx,
 int chirouter_arp_pending_req_add_frame(chirouter_ctx_t *ctx, chirouter_pending_arp_req_t *pending_req, ethernet_frame_t *frame);
 
 
-/* DO NOT USE THE FUNCTIONS BELOW */
+/*
+ * chirouter_arp_pending_req_free_frames - Frees all the frames associated with a pending ARP request
+ *
+ * Note: The lock_arp mutex in the router context must be locked before
+ *       calling this function.
+ *
+ * pending_req: Pending request whose frames will be freed
+ *
+ * Returns: 0 on success, 1 on error.
+ */
+int chirouter_arp_pending_req_free_frames(chirouter_pending_arp_req_t *pending_req);
 
-int chirouter_arp_free_pending_req(chirouter_pending_arp_req_t *pending_req);
+
+/* DO NOT USE THIS FUNCTION */
+/* This is the thread function that periodically purges the ARP cache
+ * and processes the pending ARP requests. The thread is created in server.c */
 void* chirouter_arp_process(void *args);
-
 
 #endif

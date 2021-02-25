@@ -154,7 +154,7 @@ int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 
     DL_FOREACH_SAFE(ctx->pending_arp_reqs, elt, tmp)
     {
-        chirouter_arp_free_pending_req(elt);
+        chirouter_arp_pending_req_free_frames(elt);
         DL_DELETE(ctx->pending_arp_reqs, elt);
         free(elt);
     }

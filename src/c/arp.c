@@ -200,7 +200,7 @@ int chirouter_arp_pending_req_add_frame(chirouter_ctx_t *ctx, chirouter_pending_
 
 
 /* See arp.h */
-int chirouter_arp_free_pending_req(chirouter_pending_arp_req_t *pending_req)
+int chirouter_arp_pending_req_free_frames(chirouter_pending_arp_req_t *pending_req)
 {
     withheld_frame_t *elt, *tmp;
 
@@ -247,7 +247,7 @@ void* chirouter_arp_process(void *args)
             {
                 if(chirouter_arp_process_pending_req(ctx, elt) == ARP_REQ_REMOVE)
                 {
-                    chirouter_arp_free_pending_req(elt);
+                    chirouter_arp_pending_req_free_frames(elt);
                     DL_DELETE(ctx->pending_arp_reqs, elt);
                     free(elt);
                 }
