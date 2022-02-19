@@ -1,0 +1,26 @@
+#!/bin/bash
+
+if [[ ! ( $# -eq 1 || $# -eq 3 ) ]]; then
+    echo "Usage: $0 TOPOLOGY_FILE [CHIROUTER_HOST CHIROUTER_PORT]"
+    exit 1
+fi
+
+TOPOLOGY_FILE=$1
+
+if [ ! -f "$TOPOLOGY_FILE" ]; then
+    echo "No such file: $TOPOLOGY_FILE"
+    exit 2
+fi
+
+if [[ $# -eq 1 ]]; then
+    CHIROUTER_PARAMS="";
+else
+    CHIROUTER_PARAMS="--chirouter-host=$2 --chirouter-port=$3"
+fi
+
+export PYTHONPATH=$(pwd)/src/python/
+
+ryu-manager --user-flags src/python/chirouter/ryu_flags.py \
+            chirouter.controller \
+            --chirouter-topology-file $TOPOLOGY_FILE \
+            $CHIROUTER_PARAMS

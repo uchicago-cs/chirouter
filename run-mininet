@@ -1,27 +1,22 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 
 import os, sys
 import click
-
+from mininet.node import RemoteController, Ryu
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 src_path = dir_path + '/src/python'
 sys.path.insert(0, src_path)
-print src_path
-# We also need to add the directory to PYTHONPATH, because
-# POX is launched as a separate process and depends on this.
-os.environ["PYTHONPATH"] = src_path + ":" + os.environ.get("PYTHONPATH", "")
 
-
-POX_LOCATION = dir_path + "/lib/pox"
 
 try:
     import chirouter.simulator as simulator
-except ImportError, ie:
-	print ie
-	print "Could not import chirouter packages."
-	print "Please make sure you run this command from your chirouter directory."
-	sys.exit(1)
+except ImportError as ie:
+    print(ie)
+    print("Could not import chirouter packages.")
+    print("Please make sure you run this command from your chirouter directory.")
+    sys.exit(1)
+
 
 def validate_host(ctx, param, value):
     if value is None:
@@ -30,29 +25,47 @@ def validate_host(ctx, param, value):
     try:
         host, port = value.split(":")
         port = int(port)
-        return (host, port)
+        return host, port
     except ValueError:
         raise click.BadParameter("Host needs to be in format HOST:PORT")
 
+
 @click.command(name="run-mininet")
 @click.argument('topo_file', type=click.Path(exists=True))
-@click.option('--chirouter', callback=validate_host)
-@click.option('--pox', callback=validate_host)
-def cmd(topo_file, chirouter, pox):
+@click.option('--chirouter', callback=validate_host, metavar="HOST:PORT", help="Host and port of chirouter")
+@click.option('--remote-controller', callback=validate_host, metavar="HOST:PORT", help="Host and port of remote controller")
+def cmd(topo_file, chirouter, remote_controller):
+    if chirouter is not None and remote_controller is not None:
+        exit("You cannot specify both the --chirouter and --remote-controller options")
+
     if os.geteuid() != 0:
         exit("Mininet must be run as root. Please try running with 'sudo'.")
 
     topo_file = os.path.abspath(topo_file)
-    
-    if pox is None:
-        pox_location = POX_LOCATION
-    else:
-        pox_location = None
 
-    simulator.run(topo_file = topo_file, 
-                  pox = pox,
-                  chirouter = chirouter,
-                  pox_location = pox_location)
+    if remote_controller is not None:
+        # Connect to a remote controller
+        rhost, rport = remote_controller
+        controller = RemoteController("c0", ip=rhost, port=rport)
+    else:
+        # Launch a Ryu-based controller
+        if chirouter is None:
+            chirouter_host, chirouter_port = "localhost", 23300
+        else:
+            chirouter_host, chirouter_port = chirouter
+
+        command = "PYTHONPATH=./src/python/ ryu-manager"
+
+        params  = ["chirouter.controller"]
+        params += ["--user-flags src/python/chirouter/ryu_flags.py"]
+        params += ["--chirouter-topology-file=" + topo_file]
+        params += ["--chirouter-host=" + chirouter_host]
+        params += ["--chirouter-port=" + str(chirouter_port)]
+
+        controller = Ryu("c0", command=command, ryuArgs=params)
+
+    simulator.run(topo_file=topo_file, controller=controller)
+
 
 if __name__ == "__main__":
     cmd()

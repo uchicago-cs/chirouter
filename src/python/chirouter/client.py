@@ -91,8 +91,9 @@ class ChirouterMessageRouter(ChirouterMessage):
         self.name = name
 
     def pack(self):
-        payload = struct.pack("!BBB", self.rid, self.num_interfaces, self.len_rtable) + str(self.name)
-        return self._pack(3 + len(self.name), payload)
+        name = bytes(self.name, "utf-8")
+        payload = struct.pack("!BBB", self.rid, self.num_interfaces, self.len_rtable) + name
+        return self._pack(3 + len(name), payload)
 
 
 class ChirouterMessageInterface(ChirouterMessage):
@@ -108,8 +109,9 @@ class ChirouterMessageInterface(ChirouterMessage):
         self.name = name
 
     def pack(self):
-        payload = struct.pack("!BB", self.rid, self.iface_id) + self.hwaddr + self.ipaddr + str(self.name)
-        return self._pack(12 + len(self.name), payload)
+        name = bytes(self.name, "utf-8")
+        payload = struct.pack("!BB", self.rid, self.iface_id) + self.hwaddr + self.ipaddr + name
+        return self._pack(12 + len(name), payload)
 
 class ChirouterMessageRTableEntry(ChirouterMessage):
     def __init__(self, rid, iface_id, dest, mask, gw, metric):
@@ -194,7 +196,7 @@ class ChirouterClient(object):
 
         hello = ChirouterMessageHello(from_router=False)
         self.send_msg(hello)
-        reply = self.received_messages.next()
+        reply = next(self.received_messages)
 
         routers = ChirouterMessageRouters(self.topology.num_routers)
         self.send_msg(routers)
@@ -224,11 +226,11 @@ class ChirouterClient(object):
                 else:
                     hwaddr = iface.hwaddr_packed
 
-                interface_msg = ChirouterMessageInterface(rid = rid,
-                                                          iface_id = iface_id,
-                                                          hwaddr = hwaddr,
-                                                          ipaddr = iface.ip_packed,
-                                                          name = iface.name
+                interface_msg = ChirouterMessageInterface(rid=rid,
+                                                          iface_id=iface_id,
+                                                          hwaddr=hwaddr,
+                                                          ipaddr=iface.ip_packed,
+                                                          name=iface.name
                                                           )
 
                 self.send_msg(interface_msg)
@@ -239,11 +241,11 @@ class ChirouterClient(object):
                 iface = router.interfaces[rte.iface]
                 rid, iface_id = self.iface_ids[iface]
 
-                rtable_msg = ChirouterMessageRTableEntry(rid = rid,
-                                                         iface_id = iface_id,
-                                                         dest = rte.network.packed,
-                                                         mask = rte.network.netmask.packed,
-                                                         gw = rte.gateway_addr.packed,
+                rtable_msg = ChirouterMessageRTableEntry(rid=rid,
+                                                         iface_id=iface_id,
+                                                         dest=rte.network.packed,
+                                                         mask=rte.network.netmask.packed,
+                                                         gw=rte.gateway_addr.packed,
                                                          metric=rte.metric
                                                         )
 
@@ -294,13 +296,14 @@ class ChirouterClient(object):
 
         try:
             self.conn.sendall(packed_msg)
-        except IOError, e:
+        except IOError as e:
             if e.errno == errno.EPIPE:
                 return False
             else:
                 raise e
 
         return True
+
 
 if __name__ == "__main__":
     topology = Topology.from_json(open("basic.json"))
