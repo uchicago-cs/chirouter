@@ -3,7 +3,6 @@ import ipaddress
 import struct
 import binascii
 
-import mininet.topo
 
 class Interface(object):
 
@@ -247,8 +246,9 @@ class Topology(object):
 
         return topo
 
-
     def to_mininet_topology(self):
+        import mininet.topo
+
         topo = mininet.topo.Topo()
 
         for h in self.hosts:

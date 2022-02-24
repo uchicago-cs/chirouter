@@ -1,0 +1,96 @@
+{
+  "name": "chirouter",
+  "total_points": 100,
+  "categories": [
+    {
+      "name": "Responding to ARP requests",
+      "subcategories": [
+        {
+          "cid": "RESPONDING_ARP_REQUESTS",
+          "num_tests": 1
+        }
+      ],
+      "points": 5
+    },
+    {
+      "name": "ICMP requests to router",
+      "subcategories": [
+        {
+          "cid": "ICMP_ROUTER",
+          "num_tests": 3
+        }
+      ],
+      "points": 15
+    },
+    {
+      "name": "ARP requests and ARP replies",
+      "subcategories": [
+        {
+          "cid": "ARP_SENDING_REQ_AND_PROCESS_REPLY",
+          "num_tests": 1
+        }
+      ],
+      "points": 10
+    },
+    {
+      "name": "IP forwarding",
+      "subcategories": [
+        {
+          "cid": "IP_FORWARDING_BASIC",
+          "num_tests": 2
+        }
+      ],
+      "points": 15
+    },
+    {
+      "name": "Handling ARP pending requests",
+      "subcategories": [
+        {
+          "cid": "PENDING_ARP_REQUESTS",
+          "num_tests": 1
+        }
+      ],
+      "points": 10
+    },
+    {
+      "name": "Timing out pending ARP requests",
+      "subcategories": [
+        {
+          "cid": "TIMING_OUT_PENDING_ARP_REQUESTS",
+          "num_tests": 1
+        }
+      ],
+      "points": 5
+    },
+    {
+      "name": "Basic Topology",
+      "subcategories": [
+        {
+          "cid": "BASIC_TOPOLOGY",
+          "num_tests": 4
+        }
+      ],
+      "points": 15
+    },
+    {
+      "name": "The Two Router Topology",
+      "subcategories": [
+        {
+          "cid": "2ROUTER",
+          "num_tests": 5
+        }
+      ],
+      "points": 15
+    },
+    {
+      "name": "The Three Router Topology",
+      "subcategories": [
+        {
+          "cid": "3ROUTER",
+          "num_tests": 6
+        }
+      ],
+      "points": 10
+    }
+  ]
+}

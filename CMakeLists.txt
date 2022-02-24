@@ -18,3 +18,14 @@ add_executable(chirouter
 
 target_link_libraries(chirouter pthread)
 
+add_custom_target(test-categories
+        COMMAND ../src/python/chirouter/tests/print-categories.py ../src/python/chirouter/tests/rubric.json)
+
+add_custom_target(tests
+        COMMAND sudo pytest src/python/chirouter/tests/
+        WORKING_DIRECTORY ../
+        DEPENDS chirouter)
+
+add_custom_target(grade
+        COMMAND src/python/chirouter/tests/grade.py src/python/chirouter/tests/rubric.json
+        WORKING_DIRECTORY ../)

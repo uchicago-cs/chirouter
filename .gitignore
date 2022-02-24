@@ -5,3 +5,8 @@
 *.pyc
 /chirouter
 .cache
+alltests
+build/*
+index.html
+nohup.out
+tests.json
