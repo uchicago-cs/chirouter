@@ -358,7 +358,7 @@ class TestTraceroute:
 
         traceroute = chirouter_runner.traceroute("client1", "192.168.1.2", max_hops=5)
 
-        traceroute.validate_output(expected_hops = ["10.0.0.1", "192.168.1.2"])
+        traceroute.validate_output(expected_hops = ["10.0.0.1", "192.168.1.2"], max_timeouts=2)
 
 
 class TestWget:

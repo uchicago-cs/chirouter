@@ -88,7 +88,7 @@ class TestTraceroute:
 
         traceroute.validate_output(expected_hops = ["10.0.100.1",
                                                     "192.168.1.1",
-                                                    "172.16.0.2"])
+                                                    "172.16.0.2"], max_timeouts=2)
 
     @pytest.mark.category("2ROUTER")
     def test_traceroute_client100(self, chirouter_runner):
@@ -115,7 +115,7 @@ class TestTraceroute:
 
         traceroute.validate_output(expected_hops = ["172.16.0.1",
                                                     "192.168.1.10",
-                                                    "10.0.100.42"])
+                                                    "10.0.100.42"], max_timeouts=2)
 
 class TestWget:
 
