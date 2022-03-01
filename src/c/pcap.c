@@ -152,7 +152,7 @@ int chirouter_pcap_write_interfaces(server_ctx_t *ctx)
         {
             chirouter_interface_t *iface = &r->interfaces[i];
             struct pcapng_idb hdr;
-            char iface_name[MAX_ROUTER_NAMELEN + MAX_IFACE_NAMELEN + 1];
+            char iface_name[MAX_ROUTER_NAMELEN + MAX_IFACE_NAMELEN + 2];
 
             snprintf(iface_name, MAX_ROUTER_NAMELEN + MAX_IFACE_NAMELEN + 2, "%s-%s", r->name, iface->name);
 
