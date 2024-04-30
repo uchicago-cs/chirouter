@@ -1,8 +1,8 @@
-import SimpleHTTPServer
-import SocketServer
+import http.server
+import socketserver
 import sys
 
-class ChiRouterHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
+class ChiRouterHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     # Disable logging DNS lookups
     def address_string(self):
@@ -13,7 +13,7 @@ class ChiRouterHTTPHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.send_header("Content-length", len(HTTP_RESPONSE))
         self.end_headers()
-        self.wfile.write(HTTP_RESPONSE)
+        self.wfile.write(bytes(HTTP_RESPONSE, "utf-8"))
 
 server_name = sys.argv[1]
 
@@ -28,6 +28,14 @@ Your router successfully routes your packets to and from {}.<br/>
 </html>""".format(server_name, server_name)
 
 Handler = ChiRouterHTTPHandler
-httpd = SocketServer.TCPServer(("", PORT), Handler)
-print "{}: httpd serving at port {}".format(server_name, PORT)
-httpd.serve_forever()
+socketserver.TCPServer.allow_reuse_address = True
+httpd = socketserver.TCPServer(("", PORT), Handler)
+print("{}: httpd serving at port {}".format(server_name, PORT))
+
+try:
+    httpd.serve_forever()
+except KeyboardInterrupt:
+    pass
+
+httpd.server_close()
+print("Server stopped.")

@@ -36,7 +36,7 @@ def run(topo_file, controller, run_cli=True):
                 
             if "httpd" in h.attrs:
                 print("*** Starting SimpleHTTPServer on host %s" % mn_host.name)
-                mn_host.cmd('nohup python2.7 ./scripts/webserver.py %s &' % (mn_host.name))
+                mn_host.cmd('nohup python3 ./scripts/webserver.py %s &' % (mn_host.name))
 
     for r in topo.routers:
         mn_router = net.get(r.name)
