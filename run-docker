@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+docker run -ti --rm --privileged --name chirouter --add-host=host.docker.internal:host-gateway borjasotomayor/chirouter $@

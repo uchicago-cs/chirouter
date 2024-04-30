@@ -5,7 +5,7 @@
  *
  *  The chirouter executable accepts three command-line arguments:
  *
- *  -p PORT: Port on which chirouter will listen (default: 23300)
+ *  -p PORT: Port on which chirouter will listen (default: 23320)
  *  -c FILE: If specified, will produce a pcapng capture file with all
  *           the Ethernet frames received/sent by the routers.
  *  -v: Be verbose. Can be repeated up to three times for extra verbosity.
@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
 
     sigset_t new;
     int opt;
-    char *port = "23300";
+    char *port = "23320";
     char *cap_file = NULL;
     int verbosity = 0;
 
