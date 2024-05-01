@@ -7,6 +7,7 @@ WORKDIR /chirouter
 ENV DEBIAN_FRONTEND=noninteractive
 
 COPY ENTRYPOINT.sh run-mininet run-controller /chirouter/
+COPY scripts/webserver.py /chirouter/scripts/
 COPY topologies/ /chirouter/topologies/
 COPY src/python/chirouter/*.py /chirouter/src/python/chirouter/
 
