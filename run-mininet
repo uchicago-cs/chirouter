@@ -50,7 +50,7 @@ def cmd(topo_file, chirouter, remote_controller):
     else:
         # Launch a Ryu-based controller
         if chirouter is None:
-            chirouter_host, chirouter_port = "localhost", 23300
+            chirouter_host, chirouter_port = "localhost", 23320
         else:
             chirouter_host, chirouter_port = chirouter
 

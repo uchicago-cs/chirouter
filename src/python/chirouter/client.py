@@ -308,6 +308,6 @@ class ChirouterClient(object):
 if __name__ == "__main__":
     topology = Topology.from_json(open("basic.json"))
 
-    c = ChirouterClient("localhost", 23300, topology)
+    c = ChirouterClient("localhost", 23320, topology)
 
     c.connect()

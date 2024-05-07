@@ -30,7 +30,7 @@ class ChirouterTestRunner:
             raise RuntimeError("{} does not exist or it is not executable".format(self.chirouter_exe))
 
         if chirouter_port is None:
-            self.chirouter_port = 23300
+            self.chirouter_port = 23320
             self.randomize_ports = False
         elif chirouter_port == -1:
             self.chirouter_port = None
