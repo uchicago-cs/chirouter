@@ -12,6 +12,8 @@ def pytest_addoption(parser):
                      help="set log level in chirouter to LOGLEVEL (-1: -q, 0: normal, 1: -v, 2: -vv, 3: -vvv).")
     parser.addoption("--chirouter-port", action="store", type=int, default=-1,
                      help="port to run chirouter on (use -1 to use a random port in each test)")
+    parser.addoption("--chirouter-external-host", action="store", type=str, default="localhost",
+                     help="Do not launch chirouter, and instead connect to chirouter on this host")
     parser.addoption("--chirouter-external-port", action="store", type=int,
                      help="Do not launch chirouter, and instead connect to chirouter on this port")
     parser.addoption("--generate-alltests-file", action="store", type=str, default=None,
@@ -33,9 +35,6 @@ def pytest_sessionstart(session):
                     session.rubric_categories.add(sc["cid"])
 
 def pytest_collection_finish(session):
-    if session.config.option.chirouter_external_port is not None and len(session.items) > 1:
-        pytest.exit("Cannot use --chirouter-external-port when running more than one test.")
-
     if session.config.option.generate_alltests_file is not None:
         with open(session.config.option.generate_alltests_file, "w") as f:
             for item in session.items:
@@ -73,11 +72,13 @@ def chirouter_runner(request):
     chirouter_exe = request.config.getoption("--chirouter-exe")
     chirouter_loglevel = request.config.getoption("--chirouter-loglevel")
     chirouter_port = request.config.getoption("--chirouter-port")
+    external_chirouter_host = request.config.getoption("--chirouter-external-host")
     external_chirouter_port = request.config.getoption("--chirouter-external-port")
 
     runner = ChirouterTestRunner(chirouter_exe=chirouter_exe,
                                  chirouter_port=chirouter_port,
                                  loglevel=chirouter_loglevel,
+                                 chirouter_host=external_chirouter_host,
                                  external_chirouter_port=external_chirouter_port)
 
     runner.start()

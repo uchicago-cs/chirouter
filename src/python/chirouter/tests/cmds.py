@@ -2,7 +2,7 @@ import re
 
 class SuccessfulPingLine:
 
-    RE = re.compile("(?P<bytes>[0-9]+) bytes from (?P<host>[0-9\.]+): icmp_seq=(?P<icmp_seq>[0-9]+) ttl=(?P<ttl>[0-9]+) time=(?P<time>[0-9\.]+) ms")
+    RE = re.compile(r"(?P<bytes>[0-9]+) bytes from (?P<host>[0-9\.]+): icmp_seq=(?P<icmp_seq>[0-9]+) ttl=(?P<ttl>[0-9]+) time=(?P<time>[0-9\.]+) ms")
 
     def __init__(self, line):
         m = SuccessfulPingLine.RE.match(line)
@@ -21,7 +21,7 @@ class SuccessfulPingLine:
 
 class FailedPingLine:
 
-    RE = re.compile("From (?P<error_source>[0-9\.]+) icmp_seq=(?P<icmp_seq>[0-9]+) (?P<reason>.*)")
+    RE = re.compile(r"From (?P<error_source>[0-9\.]+) icmp_seq=(?P<icmp_seq>[0-9]+) (?P<reason>.*)")
 
     def __init__(self, line):
         m = FailedPingLine.RE.match(line)
@@ -38,7 +38,7 @@ class FailedPingLine:
 
 class StatsLine:
 
-    RE = re.compile("(?P<transmitted>[0-9]+) packets transmitted, (?P<received>[0-9]+) received, (?P<packet_loss_pct>[0-9\.]+)% packet loss, time (?P<time>[0-9\.]+)ms")
+    RE = re.compile(r"(?P<transmitted>[0-9]+) packets transmitted, (?P<received>[0-9]+) received, (?P<packet_loss_pct>[0-9\.]+)% packet loss, time (?P<time>[0-9\.]+)ms")
 
     def __init__(self, line):
         m = StatsLine.RE.match(line)

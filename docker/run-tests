@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+pytest src/python/chirouter/tests/ --chirouter-external-host host.docker.internal --chirouter-external-port 23320 $@

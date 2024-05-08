@@ -6,10 +6,11 @@ USER root
 WORKDIR /chirouter
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY ENTRYPOINT.sh run-mininet run-controller /chirouter/
+COPY docker/ENTRYPOINT.sh docker/run-tests docker/run-grade run-mininet run-controller /chirouter/
 COPY scripts/webserver.py /chirouter/scripts/
 COPY topologies/ /chirouter/topologies/
 COPY src/python/chirouter/*.py /chirouter/src/python/chirouter/
+COPY src/python/chirouter/tests/ /chirouter/src/python/chirouter/tests/
 
 # Install tools and dependencies
 RUN <<EOF
@@ -17,7 +18,7 @@ apt update && apt install -y --no-install-recommends \
   wget dnsutils iputils-ping traceroute net-tools \
   sudo nano less curl patch python3-pip git \
   libssl-dev libxml2-dev libxslt1-dev
-pip3 install click
+pip3 install click pytest pytest-json
 EOF
 
 # Install mininet
@@ -47,9 +48,10 @@ EOF
 # Cleanup
 RUN <<EOF
 apt remove -y --purge "*-dev" "libgl1*" libllvm15
+apt autoremove
 rm -rf /var/lib/apt/lists/*
 touch /etc/network/interfaces
-chmod +x /chirouter/ENTRYPOINT.sh
+chmod +x /chirouter/ENTRYPOINT.sh /chirouter/run-tests /chirouter/run-grade
 EOF
 
 ENTRYPOINT ["/chirouter/ENTRYPOINT.sh"]

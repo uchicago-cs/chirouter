@@ -72,6 +72,7 @@
 
 #include "arp.h"
 #include "chirouter.h"
+#include "server.h"
 #include "utils.h"
 #include "utlist.h"
 
@@ -221,9 +222,7 @@ void* chirouter_arp_process(void *args)
 {
     chirouter_ctx_t *ctx = (chirouter_ctx_t *) args;
 
-    while (1) {
-        sleep(1.0);
-
+    while (ctx->server->state != HELLO_WAIT) {
         pthread_mutex_lock(&(ctx->lock_arp));
 
         /* Purge the cache */
@@ -255,6 +254,7 @@ void* chirouter_arp_process(void *args)
         }
 
         pthread_mutex_unlock(&(ctx->lock_arp));
+        sleep(1.0);
     }
 
     return NULL;

@@ -241,14 +241,16 @@ int chirouter_server_run(server_ctx_t *ctx)
 
         rc = chirouter_server_process_messages(ctx);
 
-        if(rc == -1)
+        if(rc <= 0)
         {
-            chilog(CRITICAL, "Error while processing messages");
-            return -1;
-        }
-        else if (rc == 0)
-        {
-            chilog(INFO, "Controller has disconnected.");
+            if (rc < 0)
+            {
+                chilog(CRITICAL, "Error while processing messages");
+            }
+            else
+            {
+                chilog(INFO, "Controller has disconnected.");
+            }
 
             ctx->state = HELLO_WAIT;
             rc = chirouter_server_ctx_free_routers(ctx);

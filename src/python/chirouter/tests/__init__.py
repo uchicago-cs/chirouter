@@ -19,14 +19,14 @@ class ChirouterTestRunner:
     '''
 
 
-    def __init__(self, chirouter_exe=None, chirouter_port=None, loglevel=0, debug=False,
-                 external_chirouter_port=None):
+    def __init__(self, chirouter_exe=None, chirouter_host="localhost", chirouter_port=None,
+                 loglevel=0, debug=False, external_chirouter_port=None):
         if chirouter_exe is None:
             self.chirouter_exe = "build/chirouter"
         else:
             self.chirouter_exe = chirouter_exe
 
-        if not (os.path.exists(self.chirouter_exe) and os.path.isfile(self.chirouter_exe) and os.access(self.chirouter_exe, os.X_OK)):
+        if external_chirouter_port is None and not (os.path.exists(self.chirouter_exe) and os.path.isfile(self.chirouter_exe) and os.access(self.chirouter_exe, os.X_OK)):
             raise RuntimeError("{} does not exist or it is not executable".format(self.chirouter_exe))
 
         if chirouter_port is None:
@@ -41,6 +41,7 @@ class ChirouterTestRunner:
 
         self.loglevel = loglevel
         self.debug = debug
+        self.chirouter_host = chirouter_host
         self.external_chirouter_port = external_chirouter_port
 
         self.started = False
@@ -98,7 +99,7 @@ class ChirouterTestRunner:
 
         topo_file = os.path.abspath("topologies/" + topo_file)
 
-        chirouter_host, chirouter_port = "localhost", self.port
+        chirouter_host, chirouter_port = self.chirouter_host, self.port
 
         command = "PYTHONPATH=src/python/ ryu-manager"
 

@@ -148,6 +148,9 @@ void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
  */
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 {
+    pthread_mutex_lock(&ctx->lock_arp);
+    pthread_join(ctx->arp_thread, NULL);
+
     pthread_mutex_destroy(&ctx->lock_arp);
 
     chirouter_pending_arp_req_t *elt, *tmp;
