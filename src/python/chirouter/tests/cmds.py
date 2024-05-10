@@ -30,7 +30,7 @@ class FailedPingLine:
 
         self.error_source = m.group("error_source")
         self.icmp_seq = int(m.group("icmp_seq"))
-        self.reason = m.group("reason")
+        self.reason = m.group("reason").strip()
 
     def __str__(self):
         return f"From {self.error_source} icmp_seq={self.icmp_seq} {self.reason}"
@@ -114,10 +114,10 @@ class Ping:
             f"Expected {num_expected} ICMP messages from {expected_source} " \
             f"but got {len(self.fail)} instead\n\n{self.output}"
 
-        for reply in self.success:
-            assert reply.host == expected_source, \
+        for reply in self.fail:
+            assert reply.error_source == expected_source, \
                 f"Expected ICMP message from {expected_source} " \
-                f"but got one from {reply.host} instead\n\n{self.output}"
+                f"but got one from {reply.error_source} instead\n\n{self.output}"
 
             assert reply.reason == expected_reason, \
                 f"Expected '{expected_reason}' ICMP message " \

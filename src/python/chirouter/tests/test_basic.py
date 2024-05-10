@@ -118,7 +118,7 @@ class TestICMP(object):
         chirouter_runner.start_mininet("basic.json")
         mn = chirouter_runner.mininet
 
-        ping = chirouter_runner.ping("client1", "192.168.1.1", count=4, ttl=1)
+        ping = chirouter_runner.ping("client1", "10.0.0.1", count=4, ttl=1)
 
         ping.validate_output_fail(num_expected=4, expected_source="10.0.0.1",
                                   expected_reason="Time to live exceeded")
