@@ -348,7 +348,7 @@ void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix)
 void chilog_hex (loglevel_t level, void *data, int len)
 {
     int i;
-    char buf[8];
+    char buf[12];
     char ascii[17];
     char line[74];
     uint8_t *pc = data;
