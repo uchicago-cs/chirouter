@@ -1,8 +1,8 @@
 /*
  *  chirouter - A simple, testable IP router
  *
- *  This server listens on connections from the POX controller.
- *  Once established, this connection starts with the POX
+ *  This server listens on connections from the controller.
+ *  Once established, this connection starts with the
  *  controller sending information about all the routers
  *  we have to run and, after that, is used to send/receive
  *  Ethernet frames from/to those routers.
@@ -10,9 +10,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -64,6 +64,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <errno.h>
 
 #include "server.h"
 #include "log.h"
@@ -72,45 +73,46 @@
 #include "arp.h"
 
 
+/* Maximum number of pending connections on the server socket */
+#define LISTEN_BACKLOG (5)
+
+/* Size of the buffer used to receive data from the controller */
+#define RECV_BUFFER_SIZE (4096)
+
 /* Forward declarations */
-int chirouter_server_process_messages(server_ctx_t *ctx);
-int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *msg);
-int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len);
-int chirouter_server_ctx_free_routers(server_ctx_t *ctx);
+static int chirouter_server_process_messages(server_ctx_t *ctx);
+static int chirouter_server_process_single_message(server_ctx_t *ctx,
+        chirouter_msg_t *msg);
+static int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx,
+        chirouter_interface_t *iface, uint8_t *msg, size_t len);
+static int chirouter_server_ctx_free_routers(server_ctx_t *ctx);
+static bool chirouter_server_payload_len_is_valid(const chirouter_msg_t *msg,
+        uint16_t payload_len);
 
 
-/*
- * chirouter_server_ctx_init - Initializes a server context
- *
- * ctx: Server context
- *
- * Returns: 0 on success, -1 if an error happens.
- */
+/* See server.h */
 int chirouter_server_ctx_init(server_ctx_t **ctx)
 {
     /* Initialize all pointers and sizes to zero */
-    *ctx = calloc(1, sizeof(server_ctx_t));
+    *ctx = xcalloc(1, sizeof(server_ctx_t));
 
-    if(*ctx == NULL)
-        return -1;
+    (*ctx)->server_socket = -1;
+    (*ctx)->client_socket = -1;
+    atomic_init(&(*ctx)->stopping, false);
 
-    return 0;
+    pthread_mutex_init(&(*ctx)->lock_send, NULL);
+    pthread_mutex_init(&(*ctx)->lock_pcap, NULL);
+
+    return CHIROUTER_OK;
 }
 
 
-/*
- * chirouter_server_setup - Sets up the chirouter server socket
- *
- * ctx: Server context
- *
- * port: TCP port to listen on
- *
- * Returns: 0 on success, -1 if an error happens.
- *
- */
-int chirouter_server_setup(server_ctx_t *ctx, char *port)
+/* See server.h */
+int chirouter_server_setup(server_ctx_t *ctx, const char *port)
 {
     struct addrinfo hints, *res, *p;
+    int rc, last_errno = 0;
+    char errbuf[STRERROR_BUF_LEN];
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -118,37 +120,47 @@ int chirouter_server_setup(server_ctx_t *ctx, char *port)
     hints.ai_flags = AI_PASSIVE;
     int yes = 1;
 
-    if (getaddrinfo(NULL, port, &hints, &res) != 0)
+    if ((rc = getaddrinfo(NULL, port, &hints, &res)) != 0)
     {
-        chilog(CRITICAL, NULL, "getaddrinfo() failed");
-        return -1;
+        chilog(CRITICAL, "getaddrinfo() failed: %s", gai_strerror(rc));
+        return CHIROUTER_CRITICAL_ERROR;
     }
 
-    for(p = res; p != NULL; p = p->ai_next)
+    for (p = res; p != NULL; p = p->ai_next)
     {
-        if ((ctx->server_socket = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+        if ((ctx->server_socket = socket(p->ai_family, p->ai_socktype,
+                                         p->ai_protocol)) == -1)
         {
-            chilog(WARNING, NULL, "Could not open socket");
+            last_errno = errno;
+            chilog(WARNING, "Could not open socket: %s",
+                   chirouter_strerror(errno, errbuf, sizeof(errbuf)));
             continue;
         }
 
-        if (setsockopt(ctx->server_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
+        if (setsockopt(ctx->server_socket, SOL_SOCKET, SO_REUSEADDR, &yes,
+                       sizeof(int)) == -1)
         {
-            chilog(WARNING, NULL, "Socket setsockopt() failed");
+            last_errno = errno;
+            chilog(WARNING, "Socket setsockopt() failed: %s",
+                   chirouter_strerror(errno, errbuf, sizeof(errbuf)));
             close(ctx->server_socket);
             continue;
         }
 
         if (bind(ctx->server_socket, p->ai_addr, p->ai_addrlen) == -1)
         {
-            chilog(WARNING, NULL, "Socket bind() failed");
+            last_errno = errno;
+            chilog(WARNING, "Socket bind() failed: %s",
+                   chirouter_strerror(errno, errbuf, sizeof(errbuf)));
             close(ctx->server_socket);
             continue;
         }
 
-        if (listen(ctx->server_socket, 5) == -1)
+        if (listen(ctx->server_socket, LISTEN_BACKLOG) == -1)
         {
-            chilog(WARNING, NULL, "Socket listen() failed");
+            last_errno = errno;
+            chilog(WARNING, "Socket listen() failed: %s",
+                   chirouter_strerror(errno, errbuf, sizeof(errbuf)));
             close(ctx->server_socket);
             continue;
         }
@@ -160,11 +172,12 @@ int chirouter_server_setup(server_ctx_t *ctx, char *port)
 
     if (p == NULL)
     {
-        chilog(CRITICAL, NULL, "Could not find a socket to bind to.");
-        return -1;
+        chilog(CRITICAL, "Could not find a socket to bind to on port %s: %s", port,
+               chirouter_strerror(last_errno, errbuf, sizeof(errbuf)));
+        return CHIROUTER_CRITICAL_ERROR;
     }
 
-    return 0;
+    return CHIROUTER_OK;
 }
 
 
@@ -175,94 +188,143 @@ int chirouter_server_setup(server_ctx_t *ctx, char *port)
  *
  * msg: Message to send
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
  *
  */
-int chirouter_server_send_msg(server_ctx_t *ctx, chirouter_msg_t *msg)
+static int chirouter_server_send_msg(server_ctx_t *ctx, chirouter_msg_t *msg)
 {
-    int sent = 0;
-    int totallen = 4 + ntohs(msg->payload_length);
+    size_t sent = 0;
+    size_t totallen = MSG_HDR_LEN + ntohs(msg->payload_length);
     char *buf = (char *) msg;
 
-    while (sent < totallen) {
-        int cur = send(ctx->client_socket, buf+sent, totallen-sent, 0);
-        sent = sent + cur;
-        if (cur == -1) {
-            chilog(CRITICAL, "Could not send message to controller");
-            return -1;
+    /* Frames can be sent from both the main thread and the ARP threads,
+     * so we must make sure messages are not interleaved on the socket */
+    pthread_mutex_lock(&ctx->lock_send);
+
+    while (sent < totallen)
+    {
+        ssize_t cur = send(ctx->client_socket, buf + sent, totallen - sent, 0);
+        if (cur == -1)
+        {
+            pthread_mutex_unlock(&ctx->lock_send);
+            chilog(CRITICAL, "Could not send message to Mininet");
+            return CHIROUTER_CRITICAL_ERROR;
         }
+        sent += (size_t) cur;
     }
 
-    return 0;
+    pthread_mutex_unlock(&ctx->lock_send);
+
+    return CHIROUTER_OK;
 }
 
 
-/*
- * chirouter_server_run - Run the chirouter server
- *
- * The chirouter server is designed to handle only one connection at a time,
- * since it should only be associated with one controller at any given point.
- *
- * ctx: Server context
- *
- * Returns: 0 on success, -1 if an error happens.
- *
- */
+/* See server.h */
 int chirouter_server_run(server_ctx_t *ctx)
 {
     struct sockaddr_storage *client_addr;
     int client_socket, rc;
     char ip[NI_MAXHOST];
     char port[NI_MAXSERV];
-    socklen_t sa_size = sizeof(struct sockaddr_storage);
+    socklen_t sa_size;
+    bool stopping;
+    char errbuf[STRERROR_BUF_LEN];
 
-    client_addr = calloc(1, sa_size);
-    while (1)
+    client_addr = xcalloc(1, sizeof(struct sockaddr_storage));
+    while (!atomic_load(&ctx->stopping))
     {
-        chilog(INFO, "Waiting for connection from controller...");
-        if ((client_socket = accept(ctx->server_socket, (struct sockaddr *) client_addr, &sa_size)) == -1)
+        chilog(INFO, "Waiting for connection from Mininet...");
+        sa_size = sizeof(struct sockaddr_storage);
+        client_socket = accept(ctx->server_socket,
+                               (struct sockaddr *) client_addr, &sa_size);
+        if (client_socket == -1)
         {
+            if (atomic_load(&ctx->stopping))
+                break;
+
             free(client_addr);
-            chilog(CRITICAL, "Could not accept() connection");
-            return -1;
+            chilog(CRITICAL, "Could not accept() connection: %s",
+                   chirouter_strerror(errno, errbuf, sizeof(errbuf)));
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        rc = getnameinfo((struct sockaddr *) client_addr, sa_size,
-                         ip, NI_MAXHOST, port, NI_MAXSERV, NI_NUMERICHOST | NI_NUMERICSERV);
+        /* If chirouter_server_stop is called while we are accepting the
+         * connection, it won't see the client socket, so we need to check
+         * whether we are stopping after setting it */
+        pthread_mutex_lock(&ctx->lock_send);
+        ctx->client_socket = client_socket;
+        stopping = atomic_load(&ctx->stopping);
+        if (stopping)
+        {
+            close(ctx->client_socket);
+            ctx->client_socket = -1;
+        }
+        pthread_mutex_unlock(&ctx->lock_send);
 
-        if(rc)
-            chilog(INFO, "Controller connected");
+        if (stopping)
+            break;
+
+        rc = getnameinfo((struct sockaddr *) client_addr, sa_size,
+                         ip, NI_MAXHOST, port, NI_MAXSERV,
+                         NI_NUMERICHOST | NI_NUMERICSERV);
+
+        if (rc)
+            chilog(INFO, "Mininet connected");
         else
-            chilog(INFO, "Controller connected from %s:%s", ip, port);
+            chilog(INFO, "Mininet connected from %s:%s", ip, port);
 
 
         ctx->state = HELLO_WAIT;
-        ctx->client_socket = client_socket;
 
         rc = chirouter_server_process_messages(ctx);
 
-        if(rc <= 0)
+        if (rc == CHIROUTER_CRITICAL_ERROR)
         {
-            if (rc < 0)
-            {
-                chilog(CRITICAL, "Error while processing messages");
-            }
-            else
-            {
-                chilog(INFO, "Controller has disconnected.");
-            }
-
-            ctx->state = HELLO_WAIT;
-            rc = chirouter_server_ctx_free_routers(ctx);
-            if(rc == -1)
-            {
-                chilog(CRITICAL, "Error while freeing router resources");
-                return -1;
-            }
+            chilog(CRITICAL, "Error while processing messages");
         }
+        else
+        {
+            chilog(INFO, "Mininet has disconnected.");
+        }
+
+        ctx->state = HELLO_WAIT;
+        rc = chirouter_server_ctx_free_routers(ctx);
+        if (rc == CHIROUTER_CRITICAL_ERROR)
+        {
+            chilog(CRITICAL, "Error while freeing router resources");
+            return CHIROUTER_CRITICAL_ERROR;
+        }
+
+        /* We only close the socket once the routers (and their ARP
+         * threads, which may send frames on this socket) are gone. */
+        pthread_mutex_lock(&ctx->lock_send);
+        close(ctx->client_socket);
+        ctx->client_socket = -1;
+        pthread_mutex_unlock(&ctx->lock_send);
     }
+
     free(client_addr);
-    return 0;
+
+    return CHIROUTER_OK;
+}
+
+
+/* See server.h */
+void chirouter_server_stop(server_ctx_t *ctx)
+{
+    atomic_store(&ctx->stopping, true);
+
+    /* Wake up chirouter_server_run, which may be blocked in accept()
+     * or recv(). Shutting down the server socket makes accept() fail,
+     * and shutting down the client socket makes recv() return 0
+     * (as if the controller had closed the connection) */
+    shutdown(ctx->server_socket, SHUT_RDWR);
+
+    pthread_mutex_lock(&ctx->lock_send);
+    if (ctx->client_socket != -1)
+        shutdown(ctx->client_socket, SHUT_RDWR);
+    pthread_mutex_unlock(&ctx->lock_send);
 }
 
 
@@ -271,62 +333,72 @@ int chirouter_server_run(server_ctx_t *ctx)
  *
  * ctx: Server context
  *
+ * Note: This function does not close the client socket. That is the
+ * responsibility of the caller (once it has stopped all the ARP threads)
+ *
  * Returns:
- *  0 if the client closed the connection normally
- *  -1 if an error occurred
+ *  CHIROUTER_OK if the client closed the connection normally
+ *  CHIROUTER_CRITICAL_ERROR if an error occurred
  *
  */
-int chirouter_server_process_messages(server_ctx_t *ctx)
+static int chirouter_server_process_messages(server_ctx_t *ctx)
 {
-    char recv_buffer[4096], msg_buffer[4096];
-    chirouter_msg_t *msg;
-    int nbytes, rc;
+    char recv_buffer[RECV_BUFFER_SIZE];
+    uint8_t msg_buffer[sizeof(chirouter_msg_t)];
+    chirouter_msg_t *msg = (chirouter_msg_t *) msg_buffer;
+    ssize_t nbytes;
+    int rc;
     bool reading_header = true;
-    size_t len;
-    int i, bufpos = 0;
+    size_t len = 0;
+    ssize_t i;
+    size_t bufpos = 0;
 
-    while(1)
+    while (1)
     {
         nbytes = recv(ctx->client_socket, recv_buffer, sizeof(recv_buffer), 0);
         if (nbytes == 0)
         {
-            chilog(DEBUG, "Controller closed connection");
-            close(ctx->client_socket);
-            return 0;
+            chilog(DEBUG, "Mininet closed connection");
+            return CHIROUTER_OK;
         }
         else if (nbytes == -1)
         {
-            chilog(CRITICAL, "recv() from controller failed");
-            close(ctx->client_socket);
-            return -1;
+            chilog(CRITICAL, "recv() from Mininet failed");
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        chilog(TRACE, "recv() from controller (%i bytes)", nbytes);
-        chilog_hex(TRACE, recv_buffer, nbytes);
+        chilog(TRACE, "recv() from Mininet (%zd bytes)", nbytes);
+        chilog_hex(TRACE, recv_buffer, (size_t) nbytes);
 
+        /* Note: a single message may be split across multiple recv() calls,
+         * so bufpos, len, and reading_header must persist across them */
         i = 0;
-        len = 0;
-        while(i < nbytes)
+        while (i < nbytes)
         {
             msg_buffer[bufpos++] = recv_buffer[i++];
 
-            if(reading_header && bufpos==4)
+            if (reading_header && bufpos == MSG_HDR_LEN)
             {
                 /* We have a header */
-                msg = (chirouter_msg_t *) msg_buffer;
                 len = ntohs(msg->payload_length);
                 reading_header = false;
+
+                if (len > sizeof(chirouter_msg_t) - MSG_HDR_LEN)
+                {
+                    chilog(CRITICAL, "Received message with payload length %zu (maximum is %zu)",
+                           len, sizeof(chirouter_msg_t) - MSG_HDR_LEN);
+                    return CHIROUTER_CRITICAL_ERROR;
+                }
             }
 
-            if(!reading_header && bufpos == (4+len))
+            if (!reading_header && bufpos == (MSG_HDR_LEN + len))
             {
                 /* We have a complete message */
                 rc = chirouter_server_process_single_message(ctx, msg);
-                if(rc)
+                if (rc)
                 {
                     chilog(CRITICAL, "Error while processing message.");
-                    close(ctx->client_socket);
-                    return -1;
+                    return CHIROUTER_CRITICAL_ERROR;
                 }
                 reading_header = true;
                 bufpos = 0;
@@ -339,27 +411,78 @@ int chirouter_server_process_messages(server_ctx_t *ctx)
 
 
 /*
+ * chirouter_server_payload_len_is_valid - Check the payload length of a message
+ *
+ * Checks that the payload length of a message is valid for its type (see
+ * the description of each message in server.h). For ETHERNET FRAME messages,
+ * also checks that the frame length is consistent with the payload length.
+ *
+ * msg: Message (with a complete payload)
+ *
+ * payload_len: Payload length (in host byte order)
+ *
+ * Returns: true if the payload length is valid, false otherwise (including
+ *          if the message type is unknown).
+ */
+static bool chirouter_server_payload_len_is_valid(const chirouter_msg_t *msg,
+        uint16_t payload_len)
+{
+    switch (msg->type)
+    {
+    case MSG_TYPE_HELLO:
+    case MSG_TYPE_END_CONFIG:
+        return payload_len == 0;
+    case MSG_TYPE_ROUTERS:
+        return payload_len == MSG_ROUTERS_LEN;
+    case MSG_TYPE_ROUTER:
+        return payload_len > MSG_ROUTER_FIXED_LEN &&
+               payload_len <= MSG_ROUTER_FIXED_LEN + MAX_ROUTER_NAMELEN;
+    case MSG_TYPE_INTERFACE:
+        return payload_len > MSG_INTERFACE_FIXED_LEN &&
+               payload_len <= MSG_INTERFACE_FIXED_LEN + MAX_IFACE_NAMELEN;
+    case MSG_TYPE_RTABLE_ENTRY:
+        return payload_len == MSG_RTABLE_ENTRY_LEN;
+    case MSG_TYPE_ETHERNET_FRAME:
+        return payload_len >= MSG_ETHERNET_FIXED_LEN &&
+               ntohs(msg->ethernet.frame_len) ==
+               payload_len - MSG_ETHERNET_FIXED_LEN;
+    default:
+        return false;
+    }
+}
+
+
+/*
  * chirouter_server_process_single_message - Process a single message
  *
  * ctx: Server context
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
  *
  */
-int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *msg)
+static int chirouter_server_process_single_message(server_ctx_t *ctx,
+        chirouter_msg_t *msg)
 {
     int rc;
     chirouter_msg_t reply_msg;
     uint16_t payload_len = ntohs(msg->payload_length);
 
-    switch(msg->type)
+    if (!chirouter_server_payload_len_is_valid(msg, payload_len))
+    {
+        chilog(CRITICAL, "Received message of type %d with invalid payload "
+               "length (%u bytes)", msg->type, payload_len);
+        return CHIROUTER_CRITICAL_ERROR;
+    }
+
+    switch (msg->type)
     {
     case MSG_TYPE_HELLO:
     {
-        if(ctx->state != HELLO_WAIT)
+        if (ctx->state != HELLO_WAIT)
         {
             chilog(CRITICAL, "Received a HELLO message but not in the HELLO_WAIT state");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         /* Send back HELLO message */
@@ -368,10 +491,10 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
         reply_msg.payload_length = 0;
 
         rc = chirouter_server_send_msg(ctx, &reply_msg);
-        if(rc)
+        if (rc)
         {
             chilog(CRITICAL, "Could not send HELLO message");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         ctx->state = CONFIG;
@@ -379,19 +502,31 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_ROUTERS:
     {
-        if(ctx->state != CONFIG)
+        if (ctx->state != CONFIG)
         {
             chilog(CRITICAL, "Received a ROUTERS message but not in the CONFIG state");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
+        }
+
+        if (ctx->routers != NULL)
+        {
+            chilog(CRITICAL, "Received more than one ROUTERS message");
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         uint8_t nrouters = msg->routers.nrouters;
 
+        if (nrouters == 0)
+        {
+            chilog(CRITICAL, "Received a ROUTERS message with zero routers");
+            return CHIROUTER_CRITICAL_ERROR;
+        }
+
         ctx->max_routers = nrouters;
         ctx->num_routers = 0;
-        ctx->routers = calloc(nrouters, sizeof(chirouter_ctx_t));
+        ctx->routers = xcalloc(nrouters, sizeof(chirouter_ctx_t));
 
-        for(int i=0; i < nrouters; i++)
+        for (int i = 0; i < nrouters; i++)
         {
             chirouter_ctx_init(&ctx->routers[i]);
             ctx->routers[i].server = ctx;
@@ -401,16 +536,18 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_ROUTER:
     {
-        if(ctx->state != CONFIG)
+        if (ctx->state != CONFIG)
         {
             chilog(CRITICAL, "Received a ROUTER message but not in the CONFIG state");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        if(msg->router.r_id != ctx->num_routers)
+        if (msg->router.r_id != ctx->num_routers ||
+                ctx->num_routers >= ctx->max_routers)
         {
-            chilog(CRITICAL, "Received unexpected ROUTER message (Router ID: %d)", msg->router.r_id);
-            return -1;
+            chilog(CRITICAL, "Received unexpected ROUTER message (Router ID: %d)",
+                   msg->router.r_id);
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chilog(TRACE, "Processing Router ID %d", msg->router.r_id);
@@ -419,17 +556,21 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
 
         r->r_id = msg->router.r_id;
 
-        int name_len = payload_len - 3;
+        /* The payload length has been validated, so the name fits in
+         * r->name (with room for the terminating NUL) */
+        size_t name_len = payload_len - MSG_ROUTER_FIXED_LEN;
         memcpy(r->name, msg->router.name, name_len);
         r->name[name_len] = '\0';
 
         r->max_interfaces = msg->router.num_interfaces;
         r->num_interfaces = 0;
-        r->interfaces = calloc(r->max_interfaces, sizeof(chirouter_interface_t));
+        r->interfaces = xcalloc(r->max_interfaces,
+                                sizeof(chirouter_interface_t));
 
         r->max_rtable_entries = msg->router.len_rtable;
         r->num_rtable_entries = 0;
-        r->routing_table = calloc(r->max_rtable_entries, sizeof(chirouter_rtable_entry_t));
+        r->routing_table = xcalloc(r->max_rtable_entries,
+                                   sizeof(chirouter_rtable_entry_t));
 
         ctx->num_routers++;
 
@@ -437,33 +578,38 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_INTERFACE:
     {
-        if(ctx->state != CONFIG)
+        if (ctx->state != CONFIG)
         {
             chilog(CRITICAL, "Received an INTERFACE message but not in the CONFIG state");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        if(msg->interface.r_id >= ctx->num_routers)
+        if (msg->interface.r_id >= ctx->num_routers)
         {
             chilog(CRITICAL, "Received invalid Router ID: %d", msg->interface.r_id);
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chirouter_ctx_t *r = &ctx->routers[msg->interface.r_id];
 
-        if(msg->interface.iface_id != r->num_interfaces)
+        if (msg->interface.iface_id != r->num_interfaces ||
+                r->num_interfaces >= r->max_interfaces)
         {
-            chilog(CRITICAL, "Received unexpected INTERFACE message (Interface ID: %d)", msg->interface.iface_id);
-            return -1;
+            chilog(CRITICAL, "Received unexpected INTERFACE message (Interface ID: %d)",
+                   msg->interface.iface_id);
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chirouter_interface_t *iface = &r->interfaces[msg->interface.iface_id];
 
-        chilog(TRACE, "Processing Interface ID %d in Router ID %d",  msg->interface.iface_id,  msg->interface.r_id);
+        chilog(TRACE, "Processing Interface ID %d in Router ID %d",
+               msg->interface.iface_id,  msg->interface.r_id);
 
-        iface->pox_iface_id = msg->interface.iface_id;
+        iface->controller_iface_id = msg->interface.iface_id;
 
-        int name_len = payload_len - 12;
+        /* The payload length has been validated, so the name fits in
+         * iface->name (with room for the terminating NUL) */
+        size_t name_len = payload_len - MSG_INTERFACE_FIXED_LEN;
         memcpy(iface->name, msg->interface.name, name_len);
         iface->name[name_len] = '\0';
         memcpy(iface->mac, msg->interface.hwaddr, ETHER_ADDR_LEN);
@@ -475,36 +621,44 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_RTABLE_ENTRY:
     {
-        if(ctx->state != CONFIG)
+        if (ctx->state != CONFIG)
         {
-            chilog(CRITICAL, "Received a ROUTING TABLE ENTRY message but not in the CONFIG state");
-            return -1;
+            chilog(CRITICAL,
+                   "Received a ROUTING TABLE ENTRY message but not in the CONFIG state");
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        if(msg->rtable_entry.r_id >= ctx->num_routers)
+        if (msg->rtable_entry.r_id >= ctx->num_routers)
         {
             chilog(CRITICAL, "Received invalid Router ID: %d", msg->rtable_entry.r_id);
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chirouter_ctx_t *r = &ctx->routers[msg->rtable_entry.r_id];
 
-        if(msg->rtable_entry.iface_id >= r->num_interfaces)
+        if (msg->rtable_entry.iface_id >= r->num_interfaces)
         {
-            chilog(CRITICAL, "Received invalid Interface ID: %d", msg->rtable_entry.iface_id);
-            return -1;
+            chilog(CRITICAL, "Received invalid Interface ID: %d",
+                   msg->rtable_entry.iface_id);
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        if(r->num_rtable_entries >= r->max_rtable_entries)
+        if (r->num_rtable_entries >= r->max_rtable_entries)
         {
-            chilog(CRITICAL, "Received ROUTING TABLE ENTRY but already have %d expected entries", r->max_rtable_entries);
-            return -1;
+            chilog(CRITICAL,
+                   "Received ROUTING TABLE ENTRY but already have %d expected entries",
+                   r->max_rtable_entries);
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        chilog(TRACE, "Processing Routing Table Entry in Router ID %d (with Interface ID %d)", msg->rtable_entry.r_id, msg->rtable_entry.iface_id);
+        chilog(TRACE,
+               "Processing Routing Table Entry in Router ID %d (with Interface ID %d)",
+               msg->rtable_entry.r_id, msg->rtable_entry.iface_id);
 
-        chirouter_interface_t *iface = &r->interfaces[msg->rtable_entry.iface_id];
-        chirouter_rtable_entry_t *rtentry = &r->routing_table[r->num_rtable_entries];
+        chirouter_interface_t *iface;
+        chirouter_rtable_entry_t *rtentry;
+        iface = &r->interfaces[msg->rtable_entry.iface_id];
+        rtentry = &r->routing_table[r->num_rtable_entries];
 
         rtentry->dest.s_addr = msg->rtable_entry.dest;
         rtentry->mask.s_addr = msg->rtable_entry.mask;
@@ -517,31 +671,63 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_END_CONFIG:
     {
-        if(ctx->num_routers != ctx->max_routers)
+        if (ctx->state != CONFIG)
         {
-            chilog(CRITICAL, "Expected %d routers but received only %d", ctx->max_routers, ctx->num_routers);
-            return -1;
+            chilog(CRITICAL,
+                   "Received an END CONFIG message but not in the CONFIG state");
+            return CHIROUTER_CRITICAL_ERROR;
+        }
+
+        if (ctx->routers == NULL)
+        {
+            chilog(CRITICAL,
+                   "Received an END CONFIG message before a ROUTERS message");
+            return CHIROUTER_CRITICAL_ERROR;
+        }
+
+        if (ctx->num_routers != ctx->max_routers)
+        {
+            chilog(CRITICAL, "Expected %d routers but received only %d", ctx->max_routers,
+                   ctx->num_routers);
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chilog(INFO, "Received %i routers", ctx->num_routers);
 
-        chilog(INFO, "--------------------------------------------------------------------------------");
-        for(int i=0; i < ctx->num_routers; i++)
+        chilog(INFO,
+               "--------------------------------------------------------------------------------");
+        for (int i = 0; i < ctx->num_routers; i++)
         {
             chirouter_ctx_t *r = &ctx->routers[i];
 
-            if(r->num_interfaces != r->max_interfaces)
+            if (r->num_interfaces != r->max_interfaces)
             {
-                chilog(CRITICAL, "Router %d: Expected %d interfaces but received only %d", i, r->max_interfaces, r->num_interfaces);
-                return -1;
+                chilog(CRITICAL, "Router %d: Expected %d interfaces but received only %d", i,
+                       r->max_interfaces, r->num_interfaces);
+                return CHIROUTER_CRITICAL_ERROR;
+            }
+
+            if (r->num_rtable_entries != r->max_rtable_entries)
+            {
+                chilog(CRITICAL, "Router %d: Expected %d routing table entries "
+                       "but received only %d", i, r->max_rtable_entries,
+                       r->num_rtable_entries);
+                return CHIROUTER_CRITICAL_ERROR;
             }
 
             chirouter_ctx_log(&ctx->routers[i], INFO);
-            pthread_create(&r->arp_thread, NULL, chirouter_arp_process, r);
-            chilog(INFO, "--------------------------------------------------------------------------------");
+            rc = pthread_create(&r->arp_thread, NULL, chirouter_arp_process, r);
+            if (rc != 0)
+            {
+                chilog(CRITICAL, "Could not create ARP thread for router %d", i);
+                return CHIROUTER_CRITICAL_ERROR;
+            }
+            r->arp_thread_started = true;
+            chilog(INFO,
+                   "--------------------------------------------------------------------------------");
         }
 
-        if(ctx->pcap)
+        if (ctx->pcap)
         {
             chirouter_pcap_write_section_header(ctx);
             chirouter_pcap_write_interfaces(ctx);
@@ -552,45 +738,52 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
     }
     case MSG_TYPE_ETHERNET_FRAME:
     {
-        if(ctx->state != RUNNING)
+        if (ctx->state != RUNNING)
         {
-            chilog(CRITICAL, "Received an ETHERNET FRAME message but not in the RUNNING state");
-            return -1;
+            chilog(CRITICAL,
+                   "Received an ETHERNET FRAME message but not in the RUNNING state");
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
-        if(msg->ethernet.r_id >= ctx->num_routers)
+        if (msg->ethernet.r_id >= ctx->num_routers)
         {
             chilog(CRITICAL, "Received invalid Router ID: %d", msg->ethernet.r_id);
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chirouter_ctx_t *r = &ctx->routers[msg->ethernet.r_id];
 
-        if(msg->ethernet.iface_id >= r->num_interfaces)
+        if (msg->ethernet.iface_id >= r->num_interfaces)
         {
             chilog(CRITICAL, "Received invalid Interface ID: %d", msg->ethernet.iface_id);
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
 
         chirouter_interface_t *iface = &r->interfaces[msg->ethernet.iface_id];
 
-        rc = chirouter_server_process_ethernet_frame(r, iface, msg->ethernet.frame, ntohs(msg->ethernet.frame_len));
-        if(rc == -1)
+        rc = chirouter_server_process_ethernet_frame(r, iface,
+                msg->ethernet.frame, ntohs(msg->ethernet.frame_len));
+        if (rc == CHIROUTER_CRITICAL_ERROR)
         {
-            chilog(CRITICAL, "Error when processing Ethernet frame received from controller.");
-            return -1;
+            chilog(CRITICAL,
+                   "Error when processing Ethernet frame received from Mininet.");
+            return CHIROUTER_CRITICAL_ERROR;
         }
-
+        break;
+    }
+    default:
+    {
+        chilog(CRITICAL, "Received message with unknown type %d", msg->type);
+        return CHIROUTER_CRITICAL_ERROR;
+    }
     }
 
-    }
-
-    return 0;
+    return CHIROUTER_OK;
 }
 
 
 /*
- * chirouter_server_process_ethernet_frame - Process an Ethernet frame received in an ETHERNET FRAME message
+ * chirouter_server_process_ethernet_frame - Process an inbound Ethernet frame
  *
  * ctx: Router context
  *
@@ -601,27 +794,30 @@ int chirouter_server_process_single_message(server_ctx_t *ctx, chirouter_msg_t *
  * len: Length in bytes of the frame.
  *
  * Returns:
- *  0 on success
- *  -1 if a critical error happens
- *  1 if a non-critical error happens
+ *  CHIROUTER_OK on success
+ *  CHIROUTER_CRITICAL_ERROR if a critical error happens
+ *  CHIROUTER_ERROR if a non-critical error happens
  *
  */
-int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len)
+static int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx,
+        chirouter_interface_t *iface, uint8_t *msg, size_t len)
 {
     int rc;
 
-    if(len < ETHER_HDR_LEN)
+    if (len < ETHER_HDR_LEN)
     {
-        chilog(ERROR, "Received an Ethernet frame on interface %s that is %i bytes long (shorter than an Ethernet header)", iface->name, len);
-        return 1;
+        chilog(ERROR,
+               "Received an Ethernet frame on interface %s that is %zu bytes long (shorter than an Ethernet header)",
+               iface->name, len);
+        return CHIROUTER_ERROR;
     }
 
     ethhdr_t *hdr = (ethhdr_t *) msg;
 
     bool is_broadcast = true;
-    for(int i=0; i <ETHER_ADDR_LEN; i++)
+    for (int i = 0; i < ETHER_ADDR_LEN; i++)
     {
-        if(hdr->dst[i] != 0xFF)
+        if (hdr->dst[i] != 0xFF)
         {
             is_broadcast = false;
             break;
@@ -630,105 +826,132 @@ int chirouter_server_process_ethernet_frame(chirouter_ctx_t *ctx, chirouter_inte
 
     bool is_multicast = (hdr->dst[0] & 0x01);
 
-    /* If this is a multicast frame, don't process it, and only log it at the TRACE level */
+    /* If this is a multicast frame, don't process it, and only log it
+     * at the TRACE level */
     if (is_multicast && !is_broadcast)
     {
         chilog(TRACE, "Received a multicast Ethernet frame. Ignoring.");
         chilog_ethernet(TRACE, msg, len, LOG_INBOUND);
-        return 1;
+        return CHIROUTER_ERROR;
     }
 
-    chilog(DEBUG, "Received Ethernet frame on interface %s-%s", ctx->name, iface->name);
+    chilog(DEBUG, "Received Ethernet frame on interface %s-%s", ctx->name,
+           iface->name);
     chilog_ethernet(DEBUG, msg, len, LOG_INBOUND);
 
     /* Validate ethernet address */
-    for(int i=0; i <ETHER_ADDR_LEN; i++)
+    for (int i = 0; i < ETHER_ADDR_LEN; i++)
     {
-        if(hdr->dst[i] != iface->mac[i] && !is_broadcast)
+        if (hdr->dst[i] != iface->mac[i] && !is_broadcast)
         {
-            chilog(WARNING, "Received a non-broadcast Ethernet frame with a destination address that doesn't match the interface");
-            chilog(WARNING, "Interface %s address: %02X:%02X:%02X:%02X:%02X:%02X", iface->name, iface->mac[0], iface->mac[1], iface->mac[2],
-                                                                                                iface->mac[3], iface->mac[4], iface->mac[5]);
-            chilog(WARNING, "Ethernet destination address: %02X:%02X:%02X:%02X:%02X:%02X", hdr->dst[0], hdr->dst[1], hdr->dst[2],
-                                                                                           hdr->dst[3], hdr->dst[4], hdr->dst[5]);
-            return 1;
+            chilog(WARNING,
+                   "Received a non-broadcast Ethernet frame with a destination address that doesn't match the interface");
+            chilog(WARNING, "Interface %s address: %02X:%02X:%02X:%02X:%02X:%02X",
+                   iface->name, iface->mac[0], iface->mac[1], iface->mac[2],
+                   iface->mac[3], iface->mac[4], iface->mac[5]);
+            chilog(WARNING, "Ethernet destination address: %02X:%02X:%02X:%02X:%02X:%02X",
+                   hdr->dst[0], hdr->dst[1], hdr->dst[2],
+                   hdr->dst[3], hdr->dst[4], hdr->dst[5]);
+            return CHIROUTER_ERROR;
         }
     }
 
-    if(len < ETHER_FRAME_MIN_LEN)
+    if (len < ETHER_FRAME_MIN_LEN)
     {
-        chilog(TRACE, "Received an Ethernet frame that is %i bytes long (shorter than the minimum size of an Ethernet frame: %i)", len, ETHER_FRAME_MIN_LEN);
+        chilog(TRACE,
+               "Received an Ethernet frame that is %zu bytes long (shorter than the minimum size of an Ethernet frame: %i)",
+               len, ETHER_FRAME_MIN_LEN);
     }
 
-    if(len > ETHER_FRAME_MAX_LEN)
+    if (len > ETHER_FRAME_MAX_LEN)
     {
-        chilog(WARNING, "Received an Ethernet frame that is %i bytes long (larger than the maximum size of an Ethernet frame: %i)", len, ETHER_FRAME_MAX_LEN);
-        return 1;
+        chilog(WARNING,
+               "Received an Ethernet frame that is %zu bytes long (larger than the maximum size of an Ethernet frame: %i)",
+               len, ETHER_FRAME_MAX_LEN);
+        return CHIROUTER_ERROR;
     }
 
     /* Create Ethernet frame struct */
-    ethernet_frame_t *frame = calloc(1, sizeof(ethernet_frame_t));
+    ethernet_frame_t *frame = xcalloc(1, sizeof(ethernet_frame_t));
 
-    frame->raw = calloc(len, 1);
+    frame->raw = xmalloc(len);
     memcpy(frame->raw, msg, len);
     frame->length = len;
     frame->in_interface = iface;
 
-    if(ctx->server->pcap)
+    if (ctx->server->pcap)
+    {
+        pthread_mutex_lock(&ctx->server->lock_pcap);
         chirouter_pcap_write_frame(ctx, iface, msg, len, PCAP_INBOUND);
+        pthread_mutex_unlock(&ctx->server->lock_pcap);
+    }
 
     rc = chirouter_process_ethernet_frame(ctx, frame);
 
     free(frame->raw);
     free(frame);
 
-    if (rc == -1)
+    if (rc == CHIROUTER_CRITICAL_ERROR)
     {
         chilog(CRITICAL, "Critical error while processing Ethernet frame");
-        return -1;
+        return CHIROUTER_CRITICAL_ERROR;
     }
 
-    return 0;
+    return CHIROUTER_OK;
 }
 
 
 /* See chirouter.h */
-int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *frame, size_t frame_len)
+int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface,
+                         const uint8_t *frame, size_t frame_len)
 {
-    if(frame_len < ETHER_HDR_LEN)
+    if (frame_len < ETHER_HDR_LEN)
     {
-        chilog(ERROR, "Trying to send an Ethernet frame on interface %s that is %i bytes long (shorter than an Ethernet header)", iface->name, frame_len);
-        return 1;
+        chilog(ERROR,
+               "Trying to send an Ethernet frame on interface %s that is %zu bytes long (shorter than an Ethernet header)",
+               iface->name, frame_len);
+        return CHIROUTER_ERROR;
     }
 
-    if(frame_len > ETHER_FRAME_MAX_LEN)
+    if (frame_len > ETHER_FRAME_MAX_LEN)
     {
-        chilog(ERROR, "Trying to send an Ethernet frame on interface %s that is %i bytes long (larger than the maximum Ethernet frame size)", iface->name, frame_len);
-        return 1;
+        chilog(ERROR,
+               "Trying to send an Ethernet frame on interface %s that is %zu bytes long (larger than the maximum Ethernet frame size)",
+               iface->name, frame_len);
+        return CHIROUTER_ERROR;
     }
 
-    chilog(DEBUG, "Sending Ethernet frame on interface %s-%s", ctx->name, iface->name);
+    chilog(DEBUG, "Sending Ethernet frame on interface %s-%s", ctx->name,
+           iface->name);
     chilog_ethernet(DEBUG, frame, frame_len, LOG_OUTBOUND);
 
     ethhdr_t* hdr = (ethhdr_t*) frame;
 
     if (!ethernet_addr_is_equal(hdr->src, iface->mac))
     {
-        chilog(ERROR, "Trying to send an Ethernet frame with source address that doesn't match that of interface %s", iface->name);
-        return 1;
+        chilog(ERROR,
+               "Trying to send an Ethernet frame with source address that doesn't match that of interface %s",
+               iface->name);
+        return CHIROUTER_ERROR;
     }
 
-    if(ctx->server->pcap)
+    if (ctx->server->pcap)
+    {
+        pthread_mutex_lock(&ctx->server->lock_pcap);
         chirouter_pcap_write_frame(ctx, iface, frame, frame_len, PCAP_OUTBOUND);
+        pthread_mutex_unlock(&ctx->server->lock_pcap);
+    }
 
     chirouter_msg_t msg;
 
     msg.type = MSG_TYPE_ETHERNET_FRAME;
     msg.subtype = FROM_ROUTER;
-    msg.payload_length = htons(4+frame_len);
+    /* frame_len is at most ETHER_FRAME_MAX_LEN (checked above), so these
+     * lengths fit in the (16-bit) length fields of the message */
+    msg.payload_length = htons((uint16_t)(MSG_ETHERNET_FIXED_LEN + frame_len));
     msg.ethernet.r_id = ctx->r_id;
-    msg.ethernet.iface_id = iface->pox_iface_id;
-    msg.ethernet.frame_len = htons(frame_len);
+    msg.ethernet.iface_id = iface->controller_iface_id;
+    msg.ethernet.frame_len = htons((uint16_t) frame_len);
     memcpy(msg.ethernet.frame, frame, frame_len);
 
     return chirouter_server_send_msg(ctx->server, &msg);
@@ -740,20 +963,23 @@ int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uin
  *
  * ctx: Server context
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
  *
  */
-int chirouter_server_ctx_free_routers(server_ctx_t *ctx)
+static int chirouter_server_ctx_free_routers(server_ctx_t *ctx)
 {
     int rc;
 
-    for(int i=0; i < ctx->num_routers; i++)
+    /* All max_routers routers were initialized when the ROUTERS message
+     * was received, even if we did not receive all the ROUTER messages */
+    for (int i = 0; i < ctx->max_routers; i++)
     {
         rc = chirouter_ctx_destroy(&ctx->routers[i]);
-        if(rc)
+        if (rc)
         {
             chilog(CRITICAL, "Could not free router resource");
-            return -1;
+            return CHIROUTER_CRITICAL_ERROR;
         }
     }
 
@@ -763,29 +989,31 @@ int chirouter_server_ctx_free_routers(server_ctx_t *ctx)
     ctx->num_routers = 0;
     ctx->max_routers = 0;
 
-    return 0;
+    return CHIROUTER_OK;
 }
 
 
-/*
- * chirouter_server_ctx_destroy - Frees server resources
- *
- * ctx: Server context
- *
- * Returns: 0 on success, -1 if an error happens.
- *
- */
+/* See server.h */
 int chirouter_server_ctx_destroy(server_ctx_t *ctx)
 {
     int rc;
 
     rc = chirouter_server_ctx_free_routers(ctx);
-    if(rc)
+    if (rc)
     {
         chilog(CRITICAL, "Could not free router resources");
-        return -1;
+        return CHIROUTER_CRITICAL_ERROR;
     }
 
-    return 0;
+    if (ctx->server_socket != -1)
+    {
+        close(ctx->server_socket);
+        ctx->server_socket = -1;
+    }
+
+    pthread_mutex_destroy(&ctx->lock_send);
+    pthread_mutex_destroy(&ctx->lock_pcap);
+
+    return CHIROUTER_OK;
 }
 

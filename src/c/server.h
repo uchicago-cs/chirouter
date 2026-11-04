@@ -7,8 +7,8 @@
  *        defined in this header file. However, this file describes
  *        a network protocol used by chirouter to obtain the configuration
  *        of the routers it will manage, as well as to send/receive
- *        Ethernet frames (currently to/from a POX OpenFlow controller,
- *        although other controllers could potentially be used). We
+ *        Ethernet frames (to/from the controller that manages the
+ *        simulated network). We
  *        encourage you to read the protocol description, as an example
  *        of a protocol designed for this specific purpose. The server.c
  *        file also contains the code used to parse and interpret the
@@ -17,9 +17,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -67,11 +67,12 @@
 #define SERVER_H_
 
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "chirouter.h"
 
 
-/* The POX controller and chirouter communicate using a simple message-based
+/* The controller and chirouter communicate using a simple message-based
  * binary protocol. A single message has the following format:
  *
  *   ------------------------------------------------------      ---
@@ -93,8 +94,8 @@
  *
  *  Payload: None (Payload Length = 0)
  *
- *  Used to perform a simple handshake with the POX controller. When
- *  the POX controller connects to chirouter, it must send a HELLO
+ *  Used to perform a simple handshake with the controller. When
+ *  the controller connects to chirouter, it must send a HELLO
  *  message with Subtype = 2 (To Router). chirouter will respond
  *  with a HELLO message with Subtype = 1 (From Router)
  *
@@ -131,9 +132,9 @@
  *
  *  Payload Length: 3 + len(Name)
  *
- *  This message specifies the basic parameters of a single router. It must be followed
- *  by (Number of Interfaces) INTERFACE messages and then by (Routing Table Length)
- *  ROUTING TABLE ENTRY messages.
+ *  This message specifies the basic parameters of a single router. It must be
+ *  followed by (Number of Interfaces) INTERFACE messages and then by (Routing
+ *  Table Length) ROUTING TABLE ENTRY messages.
  *
  *
  *  INTERFACE (Type = 4)
@@ -167,8 +168,8 @@
  *
  *  Payload Length: 16
  *
- *  This message specifies a single entry in the routing table of the given router.
- *  Gateway must be set to 0 for routes that don't have a gateway.
+ *  This message specifies a single entry in the routing table of the given
+ *  router. Gateway must be set to 0 for routes that don't have a gateway.
  *
  *
  *  END CONFIG (Type = 6)
@@ -198,13 +199,13 @@
  *
  *  This message is used to transmit an Ethernet frame.
  *
- *  When the Subtype is 1 (From Router), it is used to inform the POX Controller
+ *  When the Subtype is 1 (From Router), it is used to inform the controller
  *  that the given Ethernet frame must be sent out through the specified
  *  interface (of the specified router)
  *
- *  When the Subtype is 2 (To Router), it used by the POX Controller to inform
- *  chirouter that an Ethernet frame has been received on the specified interface
- *  (of the specified router)
+ *  When the Subtype is 2 (To Router), it used by the controller to inform
+ *  chirouter that an Ethernet frame has been received on the specified
+ *  interface (of the specified router)
  *
  *
  *  Protocol Description
@@ -212,30 +213,31 @@
  *
  *  The chirouter server has three states: HELLO_WAIT, CONFIG, RUNNING
  *
- *  The server starts in the HELLO_WAIT state. Once it receives a HELLO message from
- *  the POX controller, it sends back a HELLO message and transitions to the CONFIG
- *  state.
+ *  The server starts in the HELLO_WAIT state. Once it receives a HELLO message
+ *  from the controller, it sends back a HELLO message and transitions to the
+ *  CONFIG state.
  *
- *  The next message from the POX controller must be a ROUTERS message specifying the
- *  number N of routers that chirouter will manage. This must be followed by N router
- *  specifications using the following messages: one ROUTER, one or more INTERFACE
- *  messages, and one or more ROUTING TABLE ENTRY messages.
+ *  The next message from the controller must be a ROUTERS message specifying
+ *  the number N of routers that chirouter will manage. This must be followed by
+ *  N router specifications using the following messages: one ROUTER, one or
+ *  more INTERFACE messages, and one or more ROUTING TABLE ENTRY messages.
  *
- *  The router ID numbers must start from zero and be numbered consecutively. For
- *  a given router, the interface ID numbers must start from zero and be numbered
- *  consecutively.
+ *  The router ID numbers must start from zero and be numbered consecutively.
+ *  For a given router, the interface ID numbers must start from zero and be
+ *  numbered consecutively.
  *
  *  If there are any errors in the configuration data, the server must close the
  *  connection and exit immediately.
  *
- *  After all the configuration data has been sent, the POX controller must send
+ *  After all the configuration data has been sent, the controller must send
  *  an END CONFIG message, and the server will transition to the RUNNING state.
  *
- *  In the RUNNING state both the server and the POX controller can send/receive
+ *  In the RUNNING state both the server and the controller can send/receive
  *  ETHERNET messages. If the server receives an Ethernet frame with an invalid
- *  Router ID and/or Interface ID, it must log this occurrence and drop that frame.
+ *  Router ID and/or Interface ID, it must log this occurrence and drop that
+ *  frame.
  *
- *  If the POX controller closes the connection while the server is in the RUNNING
+ *  If the controller closes the connection while the server is in the RUNNING
  *  state, the server must reset the chirouter data structures and return to
  *  the HELLO_WAIT state.
  *
@@ -243,51 +245,66 @@
 
 
 /* chirouter server messages */
-struct chirouter_msg {
-  uint8_t type;
-  uint8_t subtype;
-  uint16_t payload_length;
-  union
-  {
-      struct
-      {
-          uint8_t nrouters;
-      } routers;
-      struct
-      {
-          uint8_t r_id;
-          uint8_t num_interfaces;
-          uint8_t len_rtable;
-          char name[MAX_ROUTER_NAMELEN];
-      } router;
-      struct
-      {
-          uint8_t r_id;
-          uint8_t iface_id;
-          uint8_t hwaddr[ETHER_ADDR_LEN];
-          uint32_t ipaddr;
-          char name[MAX_IFACE_NAMELEN];
-      } interface;
-      struct
-      {
-          uint8_t r_id;
-          uint8_t iface_id;
-          uint16_t metric;
-          uint32_t dest;
-          uint32_t mask;
-          uint32_t gw;
-      } rtable_entry;
-      struct
-      {
-          uint8_t r_id;
-          uint8_t iface_id;
-          uint16_t frame_len;
-          uint8_t frame[ETHER_FRAME_MAX_LEN];
-      } ethernet;
-  };
-} __attribute__ ((packed));
+struct chirouter_msg
+{
+    uint8_t type;
+    uint8_t subtype;
+    uint16_t payload_length;
+    union
+    {
+        struct
+        {
+            uint8_t nrouters;
+        } routers;
+        struct
+        {
+            uint8_t r_id;
+            uint8_t num_interfaces;
+            uint8_t len_rtable;
+            char name[MAX_ROUTER_NAMELEN];
+        } router;
+        struct
+        {
+            uint8_t r_id;
+            uint8_t iface_id;
+            uint8_t hwaddr[ETHER_ADDR_LEN];
+            uint32_t ipaddr;
+            char name[MAX_IFACE_NAMELEN];
+        } interface;
+        struct
+        {
+            uint8_t r_id;
+            uint8_t iface_id;
+            uint16_t metric;
+            uint32_t dest;
+            uint32_t mask;
+            uint32_t gw;
+        } rtable_entry;
+        struct
+        {
+            uint8_t r_id;
+            uint8_t iface_id;
+            uint16_t frame_len;
+            uint8_t frame[ETHER_FRAME_MAX_LEN];
+        } ethernet;
+    };
+} __attribute__((packed));
 typedef struct chirouter_msg chirouter_msg_t;
 
+
+/* Length of the message header (type, subtype, and payload length) */
+#define MSG_HDR_LEN (4)
+
+/* Length of the fixed-length part of the payload of the ROUTER, INTERFACE,
+ * and ETHERNET FRAME messages (the rest of the payload is the router name,
+ * the interface name, and the frame, respectively) */
+#define MSG_ROUTER_FIXED_LEN (3)
+#define MSG_INTERFACE_FIXED_LEN (12)
+#define MSG_ETHERNET_FIXED_LEN (4)
+
+/* Length of the payload of the ROUTERS and ROUTING TABLE ENTRY messages */
+#define MSG_ROUTERS_LEN (1)
+#define MSG_RTABLE_ENTRY_LEN (16)
 
 /* Message types */
 typedef enum
@@ -324,11 +341,15 @@ typedef enum
  * to run the server, as well as the router data structures. */
 typedef struct server_ctx
 {
-    /* Server (passive) socket */
+    /* Server (passive) socket (-1 if not open) */
     int server_socket;
 
-    /* Client (active) socket */
+    /* Client (active) socket (-1 if there is no connection). This field
+     * must only be modified while holding lock_send. */
     int client_socket;
+
+    /* Set by chirouter_server_stop to tell chirouter_server_run to return */
+    atomic_bool stopping;
 
     /* Server state */
     server_state_t state;
@@ -343,12 +364,74 @@ typedef struct server_ctx
 
     /* PCAP file to dump to */
     FILE *pcap;
+
+    /* Mutex to protect the client socket when sending messages
+     * (frames can be sent from the main thread and the ARP threads) */
+    pthread_mutex_t lock_send;
+
+    /* Mutex to protect the PCAP file */
+    pthread_mutex_t lock_pcap;
 } server_ctx_t;
 
-/* See server.c for documentation */
+/*
+ * chirouter_server_ctx_init - Initializes a server context
+ *
+ * ctx: Server context
+ *
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
+ */
 int chirouter_server_ctx_init(server_ctx_t **ctx);
-int chirouter_server_setup(server_ctx_t *ctx, char *port);
+
+
+/*
+ * chirouter_server_setup - Sets up the chirouter server socket
+ *
+ * ctx: Server context
+ *
+ * port: TCP port to listen on
+ *
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
+ */
+int chirouter_server_setup(server_ctx_t *ctx, const char *port);
+
+
+/*
+ * chirouter_server_run - Run the chirouter server
+ *
+ * The chirouter server is designed to handle only one connection at a time,
+ * since it should only be associated with one controller at any given point.
+ *
+ * ctx: Server context
+ *
+ * Returns: CHIROUTER_OK if the server was stopped with chirouter_server_stop,
+ *          CHIROUTER_CRITICAL_ERROR if an error happens.
+ */
 int chirouter_server_run(server_ctx_t *ctx);
+
+
+/*
+ * chirouter_server_stop - Stops the chirouter server
+ *
+ * Makes chirouter_server_run shut down the routers (if a controller is
+ * connected) and return. This function can be called from any thread.
+ *
+ * ctx: Server context
+ *
+ * Returns: nothing.
+ */
+void chirouter_server_stop(server_ctx_t *ctx);
+
+
+/*
+ * chirouter_server_ctx_destroy - Frees server resources
+ *
+ * ctx: Server context
+ *
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
+ */
 int chirouter_server_ctx_destroy(server_ctx_t *ctx);
 
 #endif /* SERVER_H_ */

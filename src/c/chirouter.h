@@ -8,9 +8,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -52,8 +52,8 @@
  *
  */
 
-#ifndef CHIROUTER_H
-#define CHIROUTER_H
+#ifndef CHIROUTER_H_
+#define CHIROUTER_H_
 
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -68,10 +68,22 @@
 
 #define MAX_ROUTER_NAMELEN (8u)
 #define MAX_IFACE_NAMELEN (32u)
-#define MAX_NUM_INTERFACES (65536u)
-#define MAX_NUM_RTABLE_ENTRIES (65536u)
 #define ARPCACHE_SIZE (100u)
 #define ARPCACHE_ENTRY_TIMEOUT (15u)
+
+/* Return codes. Functions that can fail return one of these values */
+
+/* The function completed successfully */
+#define CHIROUTER_OK (0)
+
+/* A non-critical error happened (e.g., a frame could not be
+ * processed, but the router can continue running normally) */
+#define CHIROUTER_ERROR (1)
+
+/* A critical error happened. chirouter will close the connection
+ * to the controller and shut down all the routers (and then wait
+ * for a new connection from the controller) */
+#define CHIROUTER_CRITICAL_ERROR (-1)
 
 
 typedef struct server_ctx server_ctx_t;
@@ -91,8 +103,8 @@ typedef struct chirouter_interface
 
     /*** NOTE: You should NOT use or modify the fields below ***/
 
-    /* Interface ID for POX controller */
-    uint8_t pox_iface_id;
+    /* Interface ID for controller */
+    uint8_t controller_iface_id;
 
     /* Interface ID for capture file */
     uint32_t pcap_iface_id;
@@ -143,7 +155,8 @@ typedef struct chirouter_arpcache_entry
     /* IP address */
     struct in_addr ip;
 
-    /* Time when this entry was created */
+    /* Time when this entry was created (as returned by
+     * chirouter_arp_time_now, see arp.h) */
     time_t time_added;
 
     /* Is this a valid entry?
@@ -176,8 +189,9 @@ typedef struct chirouter_pending_arp_req
     /* Interface on which the ARP request was sent */
     chirouter_interface_t *out_interface;
 
-    /* The number of times this ARP request has been sent,
-     * and the last time we sent the request */
+    /* The number of times this ARP request has been sent, and the last
+     * time we sent the request (as returned by chirouter_arp_time_now,
+     * see arp.h) */
     uint32_t times_sent;
     time_t last_sent;
 
@@ -227,14 +241,20 @@ typedef struct chirouter_ctx
 
     /*** NOTE: You should NOT use or modify the fields below ***/
 
-    /* ARP thread */
+    /* ARP thread. arp_thread_stop is used to tell the ARP thread that it
+     * must exit, and arp_thread_cond is used to wake it up (so it doesn't
+     * have to wait until its next run to see arp_thread_stop). Both are
+     * protected by lock_arp. */
     pthread_t arp_thread;
+    bool arp_thread_started;
+    bool arp_thread_stop;
+    pthread_cond_t arp_thread_cond;
 
     /* Used during configuration of router */
     uint16_t max_interfaces;
     uint16_t max_rtable_entries;
 
-    /* Router ID for POX controller */
+    /* Router ID for controller */
     uint8_t r_id;
 
     /* Server context */
@@ -243,7 +263,7 @@ typedef struct chirouter_ctx
 
 
 /*
- * chirouter_send_frame - Send an Ethernet frame on one of the router's interfaces
+ * chirouter_send_frame - Send an Ethernet frame on a router interface
  *
  * ctx: Router context
  *
@@ -255,24 +275,62 @@ typedef struct chirouter_ctx
  *
  * Returns:
  *
- *   0 on success,
+ *   CHIROUTER_OK on success,
  *
- *   1 if a non-critical error happens
+ *   CHIROUTER_ERROR if a non-critical error happens
  *
- *   -1 if a critical error happens
+ *   CHIROUTER_CRITICAL_ERROR if a critical error happens
  *
  */
-int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len);
+int chirouter_send_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface,
+                         const uint8_t *msg, size_t len);
 
 
 /* Note: You should not call any of the functions below */
 
+
+/*
+ * chirouter_ctx_init - Initializes a router context
+ *
+ * ctx: Router context
+ *
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
+ */
 int chirouter_ctx_init(chirouter_ctx_t *ctx);
-int chirouter_ctx_load_rtable(chirouter_ctx_t *ctx, const char* rtable_filename);
-int chirouter_ctx_add_iface(chirouter_ctx_t *ctx, const char* iface, uint8_t mac[ETHER_ADDR_LEN], struct in_addr *ip);
-void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel);
+
+
+/*
+ * chirouter_ctx_log - Log contents of a router context
+ *
+ * ctx: Router context
+ *
+ * loglevel: Log level
+ *
+ * Returns: nothing.
+ */
+void chirouter_ctx_log(const chirouter_ctx_t *ctx, loglevel_t loglevel);
+
+
+/*
+ * chirouter_ctx_destroy - Frees router resources
+ *
+ * ctx: Router context
+ *
+ * Returns: CHIROUTER_OK on success, CHIROUTER_CRITICAL_ERROR if an error
+ *          happens.
+ */
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx);
 
-int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx, ethernet_frame_t *frame);
 
-#endif
+/*
+ * chirouter_process_ethernet_frame - Process a single inbound Ethernet frame
+ *
+ * This is the function you must implement. See router.c for the full
+ * description of this function.
+ */
+int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx,
+                                     ethernet_frame_t *frame);
+
+
+#endif /* CHIROUTER_H_ */

@@ -50,8 +50,27 @@
 #ifndef CHIROUTER_LOG_H_
 #define CHIROUTER_LOG_H_
 
+#include <stdint.h>
+#include "protocols/ethernet.h"
+#include "protocols/arp.h"
+#include "protocols/ipv4.h"
+#include "protocols/icmp.h"
+
+/* Lets GCC and Clang check the format string and arguments passed
+ * to the logging functions, just like they do for printf.
+ * FMT is the position of the format parameter, and ARGS is the
+ * position of the first variadic argument */
+#ifdef __GNUC__
+#define CHIROUTER_PRINTF_FORMAT(FMT, ARGS) \
+    __attribute__((format(printf, FMT, ARGS)))
+#else
+#define CHIROUTER_PRINTF_FORMAT(FMT, ARGS)
+#endif
+
 /* Log levels */
-typedef enum {
+typedef enum
+{
+    QUIET    = 00,
     CRITICAL = 10,
     ERROR    = 20,
     WARNING  = 30,
@@ -66,7 +85,7 @@ typedef enum {
 #define LOG_NO_DIRECTION ('|')
 
 /*
- * chitcp_setloglevel - Sets the logging level
+ * chirouter_setloglevel - Sets the logging level
  *
  * When a log level is set, all messages at that level or "worse" are
  * printed. e.g., if you set the log level to WARNING, then all
@@ -90,7 +109,30 @@ void chirouter_setloglevel(loglevel_t level);
  *
  * Returns: nothing.
  */
-void chilog(loglevel_t level, char *fmt, ...);
+void chilog(loglevel_t level, const char *fmt, ...) CHIROUTER_PRINTF_FORMAT(2,
+        3);
+
+
+/* Size of the buffer to pass to chirouter_strerror */
+#define STRERROR_BUF_LEN (128)
+
+/*
+ * chirouter_strerror - Returns a description of an error code
+ *
+ * This is a thread-safe version of strerror (which uses a static buffer).
+ * For example:
+ *
+ *     char errbuf[STRERROR_BUF_LEN];
+ *     chilog(ERROR, "bind() failed: %s",
+ *            chirouter_strerror(errno, errbuf, sizeof(errbuf)));
+ *
+ * errnum: Error code (e.g., errno)
+ *
+ * buf, buflen: Buffer to store the description in
+ *
+ * Returns: buf (containing the description of the error)
+ */
+const char *chirouter_strerror(int errnum, char *buf, size_t buflen);
 
 
 /*
@@ -107,7 +149,8 @@ void chilog(loglevel_t level, char *fmt, ...);
  *
  * Returns: nothing.
  */
-void chilog_ethernet(loglevel_t level, uint8_t *frame, int len, char prefix);
+void chilog_ethernet(loglevel_t level, const uint8_t *frame, size_t len,
+                     char prefix);
 
 
 /*
@@ -122,7 +165,7 @@ void chilog_ethernet(loglevel_t level, uint8_t *frame, int len, char prefix);
  *
  * Returns: nothing.
  */
-void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix);
+void chilog_arp(loglevel_t level, const arp_packet_t *arp, char prefix);
 
 
 /*
@@ -137,7 +180,7 @@ void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix);
  *
  * Returns: nothing.
  */
-void chilog_ip(loglevel_t level, iphdr_t* hdr, char prefix);
+void chilog_ip(loglevel_t level, const iphdr_t *hdr, char prefix);
 
 
 /*
@@ -152,7 +195,7 @@ void chilog_ip(loglevel_t level, iphdr_t* hdr, char prefix);
  *
  * Returns: nothing.
  */
-void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix);
+void chilog_icmp(loglevel_t level, const icmp_packet_t *icmp, char prefix);
 
 /*
  * chilog_hex - Print arbitrary data in hexdump style
@@ -165,7 +208,7 @@ void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix);
  *
  * Returns: nothing.
  */
-void chilog_hex (loglevel_t level, void *data, int len);
+void chilog_hex(loglevel_t level, const void *data, size_t len);
 
 
 #endif /* CHIROUTER_LOG_H_ */

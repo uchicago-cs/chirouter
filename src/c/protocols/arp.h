@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -69,18 +69,18 @@
  * struct can only be used to convert Ethernet addresses to
  * IPv4 addresses.
  */
-struct arp_packet
+struct chirouter_arp_packet
 {
-    uint16_t  hrd;                   /* Hardware address space  */
-    uint16_t  pro;                   /* Protocol address space  */
-    uint8_t   hln;                   /* Byte length of each hardware address */
-    uint8_t   pln;                   /* Byte length of each protocol address */
-    uint16_t  op;                    /* opcode  */
-    uint8_t   sha[ETHER_ADDR_LEN];   /* Hardware address of sender of this packet  */
-    uint32_t  spa;                   /* Protocol address of sender of this packet  */
-    uint8_t   tha[ETHER_ADDR_LEN];   /* Hardware address of target of this packet (if known) */
-    uint32_t  tpa;                   /* Protocol address of target. */
-} __attribute__ ((packed)) ;
-typedef struct arp_packet arp_packet_t;
+    uint16_t  hrd;                   // Hardware address space
+    uint16_t  pro;                   // Protocol address space
+    uint8_t   hln;                   // Byte length of each hardware address
+    uint8_t   pln;                   // Byte length of each protocol address
+    uint16_t  op;                    // Opcode
+    uint8_t   sha[ETHER_ADDR_LEN];   // Hardware address of sender
+    uint32_t  spa;                   // Protocol address of sender
+    uint8_t   tha[ETHER_ADDR_LEN];   // Hardware address of target (if known)
+    uint32_t  tpa;                   // Protocol address of target
+} __attribute__((packed));
+typedef struct chirouter_arp_packet arp_packet_t;
 
-#endif /* SRC_ROUTER_PROTOCOLS_ARP_H_ */
+#endif /* PROTOCOLS_ARP_H_ */

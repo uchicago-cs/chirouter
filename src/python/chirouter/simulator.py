@@ -1,57 +1,113 @@
-import sys
+# Creates and runs a simulated network with Mininet.
+#
+# The network is created from a topology file (see topology.py), and its
+# routers are connected to chirouter (see relay.py).
+
+from typing import Any
 
 from mininet.log import setLogLevel, info
 from mininet.cli import CLI
 from mininet.net import Mininet
-from mininet.node import Controller, RemoteController
 from mininet.util import quietRun
 
-from chirouter.client import ChirouterClient
-from chirouter.topology import Topology
+from chirouter.relay import ChirouterRelay, disable_offloads
+from chirouter.topology import Host, Topology
 
 
-def run(topo_file, controller, run_cli=True):
+def configure_host(net: Any, host: Host) -> None:
+    '''
+    Configures a host in the network: sets the IP address (and default
+    gateway) of its interfaces and, if the host has the "httpd" attribute,
+    starts a web server on it.
 
+    Inputs:
+      net (mininet.net.Mininet): the network.
+      host (Host): the host.
+
+    Returns: nothing. Raises a ValueError if one of the host's interfaces
+    doesn't exist in the network.
+    '''
+    mn_host = net.get(host.name)
+
+    # Hosts are in their own network namespace, so the container-wide
+    # IPv6 settings don't apply to them
+    mn_host.cmd("sysctl -q -w net.ipv6.conf.all.disable_ipv6=1")
+    mn_host.cmd("sysctl -q -w net.ipv6.conf.default.disable_ipv6=1")
+
+    for iface in host.interfaces.values():
+        iface_name = host.name + "-" + iface.name
+        if iface_name not in mn_host.nameToIntf:
+            raise ValueError("Host {} has no interface {}"
+                             .format(host.name, iface_name))
+
+        mn_host.intf(iface_name).setIP(iface.ip_with_prefixlen)
+        disable_offloads(mn_host, iface_name)
+
+        if iface.gateway is not None:
+            mn_host.cmd("ip route add default via {} dev {}"
+                        .format(iface.gateway, iface_name))
+
+    if "httpd" in host.attrs:
+        info("*** Starting web server on host %s\n" % mn_host.name)
+        mn_host.cmd('nohup python3 ./scripts/webserver.py %s &'
+                    % mn_host.name)
+
+
+def run(topo_file: str, chirouter_host: str, chirouter_port: int,
+        run_cli: bool = True) -> Any:
+    '''
+    Creates the network specified in a topology file, and connects its
+    routers to chirouter.
+
+    Inputs:
+      topo_file (str): path to the topology file.
+      chirouter_host (str): host where chirouter is running.
+      chirouter_port (int): port where chirouter is listening.
+      run_cli (bool): whether to run the Mininet CLI.
+
+    Returns:
+      (mininet.net.Mininet | None) if run_cli is True, runs the Mininet CLI
+      (and stops the network when the CLI exits), and returns None.
+      Otherwise, returns the network (the relay is available in its
+      chirouter_relay attribute, and must be stopped with stop() before
+      stopping the network). Raises OSError if chirouter cannot be reached.
+    '''
     setLogLevel('info')
 
     with open(topo_file, "r") as f:
         topo = Topology.from_json(f)
 
-    mn_topo = topo.to_mininet_topology()
+    net = Mininet(topo=topo.to_mininet_topology(), controller=None)
 
-    net = Mininet(topo=mn_topo, controller=controller)
     for h in topo.hosts:
-        mn_host = net.get(h.name)
-        for iface in h.interfaces.values():
-            iface_name = h.name + "-" + iface.name
-            try:
-                mn_iface = mn_host.intf(iface_name)
-            except:
-                raise Exception("Error fetching interface {} from {}".format(iface_name, h.name))
+        configure_host(net, h)
 
-            mn_iface.setIP(iface.ip_with_prefixlen)
-
-            if iface.gateway is not None:
-                mn_host.cmd("route add default gw {} dev {}".format(str(iface.gateway), iface_name))
-                
-            if "httpd" in h.attrs:
-                print("*** Starting SimpleHTTPServer on host %s" % mn_host.name)
-                mn_host.cmd('nohup python3 ./scripts/webserver.py %s &' % (mn_host.name))
-
+    # The relay needs to know the MAC addresses of the routers' interfaces
+    # (which are assigned by Mininet)
     for r in topo.routers:
         mn_router = net.get(r.name)
-
         for intf_name, intf in r.interfaces.items():
-            intf.hwaddr = mn_router.intf(r.name + "-" + intf_name).mac
+            intf.hwaddr = mn_router.intf(r.name + "-" + intf_name).MAC()
 
     net.start()
+
+    relay = ChirouterRelay(topo, chirouter_host, chirouter_port)
+    try:
+        relay.start()
+    except OSError:
+        # Don't leave the network running if chirouter can't be reached
+        net.stop()
+        quietRun("pkill -9 -f webserver.py")
+        raise
+    net.chirouter_relay = relay
+
     if run_cli:
         CLI(net)
+        relay.stop()
         net.stop()
 
-        info("*** Shutting down stale SimpleHTTPServers",
-              quietRun( "pkill -9 -f SimpleHTTPServer" ), "\n" )
-        info('*** Shutting down stale webservers',
-              quietRun( "pkill -9 -f webserver.py" ), "\n" )
+        info("*** Shutting down stale web servers",
+             quietRun("pkill -9 -f webserver.py"), "\n")
+        return None
     else:
         return net

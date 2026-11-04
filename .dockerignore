@@ -1,0 +1,11 @@
+.git
+.idea
+.vscode
+build/
+cmake-build-*/
+gradescope/
+**/__pycache__
+**/.pytest_cache
+*.pcapng
+tests.json
+src/python/chirouter/tests/master-rubric.json

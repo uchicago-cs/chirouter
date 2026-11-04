@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -56,8 +56,12 @@
 #ifndef PROTOCOLS_ICMP_H_
 #define PROTOCOLS_ICMP_H_
 
-#define MAX_ECHO_PAYLOAD (65507u)
 #define ICMP_HDR_SIZE (8u)
+
+/* ICMP error messages (Destination Unreachable, Time Exceeded) include
+ * the IP header of the original datagram, plus this many bytes of the
+ * original datagram's payload */
+#define ICMP_ERROR_PAYLOAD_LEN (8u)
 
 /* ICMP Types we care about */
 #define ICMPTYPE_ECHO_REPLY       (0x00)
@@ -70,32 +74,39 @@
 #define ICMPCODE_DEST_HOST_UNREACHABLE      (0x01)
 #define ICMPCODE_DEST_PROTOCOL_UNREACHABLE  (0x02)
 #define ICMPCODE_DEST_PORT_UNREACHABLE      (0x03)
+#define ICMPCODE_ECHO                       (0x00)
+#define ICMPCODE_TTL_EXCEEDED               (0x00)
 
-struct icmp_packet {
-  uint8_t type;
-  uint8_t code;
-  uint16_t chksum;
-  union
-  {
-      struct
-      {
-          uint16_t identifier;
-          uint16_t seq_num;
-          uint8_t payload[MAX_ECHO_PAYLOAD];
-      } echo;
-      struct
-      {
-          uint16_t unused;
-          uint16_t next_mtu;
-          uint8_t payload[sizeof(iphdr_t) + 8];
-      } dest_unreachable;
-      struct
-      {
-          uint32_t unused;
-          uint8_t payload[sizeof(iphdr_t) + 8];
-      } time_exceeded;
-  };
-} __attribute__ ((packed)) ;
-typedef struct icmp_packet icmp_packet_t;
+/* An ICMP message. The first ICMP_HDR_SIZE bytes are the ICMP header (whose
+ * last four bytes depend on the type of message), followed by the payload
+ * (the data in an Echo Request/Reply, or the IP header and the first
+ * ICMP_ERROR_PAYLOAD_LEN bytes of the payload of the original datagram in
+ * error messages). sizeof(icmp_packet_t) is ICMP_HDR_SIZE (the size of the
+ * payload is not included, since it varies). */
+struct chirouter_icmp_packet
+{
+    uint8_t type;
+    uint8_t code;
+    uint16_t chksum;
+    union
+    {
+        struct
+        {
+            uint16_t identifier;
+            uint16_t seq_num;
+        } echo;
+        struct
+        {
+            uint16_t unused;
+            uint16_t next_mtu;
+        } dest_unreachable;
+        struct
+        {
+            uint32_t unused;
+        } time_exceeded;
+    };
+    uint8_t payload[];
+} __attribute__((packed));
+typedef struct chirouter_icmp_packet icmp_packet_t;
 
 #endif /* PROTOCOLS_ICMP_H_ */

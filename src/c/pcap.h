@@ -7,9 +7,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -51,8 +51,8 @@
  *
  */
 
-#ifndef PCAP_H
-#define PCAP_H
+#ifndef PCAP_H_
+#define PCAP_H_
 
 #include "server.h"
 #include "chirouter.h"
@@ -71,7 +71,7 @@ typedef enum
  *
  * ctx: Server context
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR if an error happens.
  *
  */
 int chirouter_pcap_write_section_header(server_ctx_t *ctx);
@@ -85,7 +85,7 @@ int chirouter_pcap_write_section_header(server_ctx_t *ctx);
  *
  * ctx: Server context
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR if an error happens.
  *
  */
 int chirouter_pcap_write_interfaces(server_ctx_t *ctx);
@@ -94,7 +94,11 @@ int chirouter_pcap_write_interfaces(server_ctx_t *ctx);
 /*
  * chirouter_pcap_write_frame - Writes an Ethernet frame to the capture file
  *
- * ctx: Server context
+ * Note: The lock_pcap mutex in the server context must be locked before
+ * calling this function, since frames can be written from both the main
+ * thread and the ARP threads.
+ *
+ * ctx: Router context
  *
  * iface: Interface the frame was sent on
  *
@@ -104,10 +108,13 @@ int chirouter_pcap_write_interfaces(server_ctx_t *ctx);
  *
  * dir: Direction of the frame (inbound or outbound)
  *
- * Returns: 0 on success, -1 if an error happens.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR if an error happens.
  *
  */
-int chirouter_pcap_write_frame(chirouter_ctx_t *ctx, chirouter_interface_t *iface, uint8_t *msg, size_t len, pcap_packet_direction_t dir);
+int chirouter_pcap_write_frame(chirouter_ctx_t *ctx,
+                               chirouter_interface_t *iface,
+                               const uint8_t *msg, size_t len,
+                               pcap_packet_direction_t dir);
 
 
-#endif
+#endif /* PCAP_H_ */

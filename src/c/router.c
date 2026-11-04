@@ -8,9 +8,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -88,22 +88,24 @@
  * frame: Inbound Ethernet frame
  *
  * Returns:
- *   0 on success,
+ *   CHIROUTER_OK on success,
  *
- *   1 if a non-critical error happens
+ *   CHIROUTER_ERROR if a non-critical error happens
  *
- *   -1 if a critical error happens
+ *   CHIROUTER_CRITICAL_ERROR if a critical error happens
  *
- *   Note: In the event of a critical error, the entire router will shut down and exit.
- *         You should only return -1 for issues that would prevent the router from
- *         continuing to run normally. Return 1 to indicate that the frame could
- *         not be processed, but that subsequent frames can continue to be processed.
+ *   Note: In the event of a critical error, chirouter will shut down all the
+ *         routers. You should only return CHIROUTER_CRITICAL_ERROR for issues
+ *         that would prevent the router from continuing to run normally.
+ *         Return CHIROUTER_ERROR to indicate that the frame could not be
+ *         processed, but that subsequent frames can continue to be processed.
  */
-int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx, ethernet_frame_t *frame)
+int chirouter_process_ethernet_frame(chirouter_ctx_t *ctx,
+                                     ethernet_frame_t *frame)
 {
     /* Your code goes here */
 
-    return 0;
+    return CHIROUTER_OK;
 }
 
 

@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -50,34 +50,45 @@
  *
  */
 
-#include <stdint.h>
-
 #ifndef PROTOCOLS_IPV4_H_
 #define PROTOCOLS_IPV4_H_
 
-#define IPV4_ADDR_LEN       (4)     /* Size of IPv4 address in bytes */
+#include <stdint.h>
 
-struct iphdr
+#define IPV4_ADDR_LEN       (4)     // Size of IPv4 address in bytes
+#define IPV4_VERSION        (4)     // Value of the version field
+
+/* The header length field (ihl) is the number of 32-bit words in
+ * the header, which is 5 if the header has no options */
+#define IPV4_IHL_NO_OPTIONS (5)
+
+/* Returns the length of an IPv4 header in bytes (including options) */
+#define IPV4_HDR_LEN(hdr)   ((size_t) (hdr)->ihl * 4)
+
+/* The order of the version and ihl bit-fields depends on the byte order.
+ * We use the byte order macros predefined by GCC and Clang (instead of
+ * the ones in <endian.h>, which is not available on all platforms) */
+struct chirouter_iphdr
 {
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-    uint8_t  ihl:4,
-             version:4;
-#elif __BYTE_ORDER == __BIG_ENDIAN
-    uint8_t  version:4,
-             ihl:4;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    uint8_t  ihl: 4,
+             version: 4;
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    uint8_t  version: 4,
+             ihl: 4;
 #else
-#error __BYTE_ORDER must be defined as __LITTLE_ENDIAN or __BIG_ENDIAN!
+#error __BYTE_ORDER__ must be __ORDER_LITTLE_ENDIAN__ or __ORDER_BIG_ENDIAN__
 #endif
-    uint8_t tos;         /* Type of service */
-    uint16_t len;        /* Total Length */
-    uint16_t id;         /* Identification */
-    uint16_t off;        /* Fragment flags + Fragment Offset */
-    uint8_t ttl;         /* Time to Live */
-    uint8_t proto;       /* protocol */
-    uint16_t cksum;      /* checksum */
-    uint32_t src;     /* Source Address */
-    uint32_t dst;     /* Destination Address */
-  } __attribute__ ((packed)) ;
-typedef struct iphdr iphdr_t;
+    uint8_t tos;         // Type of service
+    uint16_t len;        // Total Length
+    uint16_t id;         // Identification
+    uint16_t off;        // Fragment flags + Fragment Offset
+    uint8_t ttl;         // Time to Live
+    uint8_t proto;       // Protocol
+    uint16_t cksum;      // Checksum
+    uint32_t src;        // Source Address
+    uint32_t dst;        // Destination Address
+} __attribute__((packed));
+typedef struct chirouter_iphdr iphdr_t;
 
 #endif /* PROTOCOLS_IPV4_H_ */

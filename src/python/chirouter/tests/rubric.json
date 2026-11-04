@@ -7,7 +7,7 @@
       "subcategories": [
         {
           "cid": "RESPONDING_ARP_REQUESTS",
-          "num_tests": 1
+          "num_tests": 2
         }
       ],
       "points": 5
@@ -17,7 +17,7 @@
       "subcategories": [
         {
           "cid": "ICMP_ROUTER",
-          "num_tests": 3
+          "num_tests": 6
         }
       ],
       "points": 15
@@ -37,7 +37,7 @@
       "subcategories": [
         {
           "cid": "IP_FORWARDING_BASIC",
-          "num_tests": 2
+          "num_tests": 3
         }
       ],
       "points": 15
@@ -57,7 +57,7 @@
       "subcategories": [
         {
           "cid": "TIMING_OUT_PENDING_ARP_REQUESTS",
-          "num_tests": 1
+          "num_tests": 2
         }
       ],
       "points": 5
@@ -67,7 +67,7 @@
       "subcategories": [
         {
           "cid": "BASIC_TOPOLOGY",
-          "num_tests": 4
+          "num_tests": 5
         }
       ],
       "points": 15

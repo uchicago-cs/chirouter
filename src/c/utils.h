@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -51,8 +51,26 @@
  *
  */
 
-#ifndef SR_UTILS_H
-#define SR_UTILS_H
+#ifndef UTILS_H_
+#define UTILS_H_
+
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include "chirouter.h"
+
+/*
+ * xmalloc, xcalloc - Allocate memory, or abort if there is no memory left
+ *
+ * These functions behave exactly like malloc and calloc, except they
+ * never return NULL: if the memory cannot be allocated, they print
+ * an error message and abort the program.
+ *
+ * Returns: Pointer to the allocated memory.
+ */
+void *xmalloc(size_t size);
+void *xcalloc(size_t nmemb, size_t size);
+
 
 /*
  * cksum - Computes a checksum
@@ -66,7 +84,7 @@
  * Returns: 16-bit checksum
  *
  */
-uint16_t cksum(const void *_data, int len);
+uint16_t cksum(const void *_data, size_t len);
 
 
 /*
@@ -77,6 +95,10 @@ uint16_t cksum(const void *_data, int len);
  * Returns: true if addr1 and addr2 are the same address, false otherwise.
  *
  */
-bool ethernet_addr_is_equal(uint8_t *addr1, uint8_t *addr2);
+bool ethernet_addr_is_equal(const uint8_t *addr1, const uint8_t *addr2);
 
-#endif
+
+/* Add the declarations for your helper functions here,
+ * and implement them in utils.c */
+
+#endif /* UTILS_H_ */

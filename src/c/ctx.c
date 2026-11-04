@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -59,99 +59,93 @@
 #include "log.h"
 #include "arp.h"
 
-/*
- * chirouter_ctx_init - Initializes a router context
- *
- * ctx: Router context
- *
- * Returns: 0 on success, -1 if an error happens.
- */
+/* See chirouter.h */
 int chirouter_ctx_init(chirouter_ctx_t *ctx)
 {
     pthread_mutex_init(&ctx->lock_arp, NULL);
+    pthread_cond_init(&ctx->arp_thread_cond, NULL);
+    ctx->arp_thread_stop = false;
 
     ctx->pending_arp_reqs = NULL;
 
-    return 0;
+    return CHIROUTER_OK;
 }
 
 
-/*
- * chirouter_ctx_log - Log contents of a router context
- *
- * ctx: Router context
- *
- * loglevel: Log level
- *
- * Returns: 0 on success, -1 if an error happens.
- */
-void chirouter_ctx_log(chirouter_ctx_t *ctx, loglevel_t loglevel)
+/* See chirouter.h */
+void chirouter_ctx_log(const chirouter_ctx_t *ctx, loglevel_t loglevel)
 {
     chilog(loglevel, "ROUTER %s", ctx->name);
-    chilog(loglevel, "");
+    chilog(loglevel, "%s", "");
 
-    if(ctx->num_interfaces == 0)
+    if (ctx->num_interfaces == 0)
     {
         chilog(loglevel, "Router has no interfaces");
     }
     else
     {
-        for(int i=0; i < ctx->num_interfaces; i++)
+        for (int i = 0; i < ctx->num_interfaces; i++)
         {
             chirouter_interface_t *iface = &ctx->interfaces[i];
+            char ip[INET_ADDRSTRLEN];
 
-            chilog(loglevel, "%s %02X:%02X:%02X:%02X:%02X:%02X %s",iface->name,
-                             iface->mac[0], iface->mac[1], iface->mac[2],
-                             iface->mac[3], iface->mac[4], iface->mac[5],
-                             inet_ntoa(iface->ip));
+            inet_ntop(AF_INET, &iface->ip, ip, sizeof(ip));
+            chilog(loglevel, "%s %02X:%02X:%02X:%02X:%02X:%02X %s", iface->name,
+                   iface->mac[0], iface->mac[1], iface->mac[2],
+                   iface->mac[3], iface->mac[4], iface->mac[5],
+                   ip);
         }
     }
 
-    chilog(loglevel, "");
+    chilog(loglevel, "%s", "");
 
-    /* Routing table logging code adapted from Simple Router's sr_print_routing_table()
-     * in sr_rc.c (Author: casado@stanford.edu) */
+    /* Routing table logging code adapted from Simple Router's
+     * sr_print_routing_table() in sr_rc.c (Author: casado@stanford.edu) */
 
-    if(ctx->num_rtable_entries == 0)
+    if (ctx->num_rtable_entries == 0)
     {
         chilog(loglevel, "Routing table is empty.");
     }
     else
     {
-        chilog(loglevel, "%-16s%-16s%-16s%-16s", "Destination", "Gateway", "Mask", "Iface");
+        chilog(loglevel, "%-16s%-16s%-16s%-16s",
+               "Destination", "Gateway", "Mask", "Iface");
 
-        for(int i=0; i < ctx->num_rtable_entries; i++)
+        for (int i = 0; i < ctx->num_rtable_entries; i++)
         {
             chirouter_rtable_entry_t *entry = &ctx->routing_table[i];
+            char dest[INET_ADDRSTRLEN];
+            char gw[INET_ADDRSTRLEN];
+            char mask[INET_ADDRSTRLEN];
 
-            char* dest = strdup(inet_ntoa(entry->dest));
-            char* gw = strdup(inet_ntoa(entry->gw));
-            char* mask = strdup(inet_ntoa(entry->mask));
+            inet_ntop(AF_INET, &entry->dest, dest, sizeof(dest));
+            inet_ntop(AF_INET, &entry->gw, gw, sizeof(gw));
+            inet_ntop(AF_INET, &entry->mask, mask, sizeof(mask));
 
-            chilog(loglevel, "%-16s%-16s%-16s%-16s", dest, gw, mask, entry->interface->name);
-
-            free(dest);
-            free(gw);
-            free(mask);
+            chilog(loglevel, "%-16s%-16s%-16s%-16s", dest, gw, mask,
+                   entry->interface->name);
         }
     }
 }
 
 
-/*
- * chirouter_ctx_destroy - Frees router resources
- *
- * ctx: Router context
- *
- * Returns: 0 on success, -1 if an error happens.
- *
- */
+/* See chirouter.h */
 int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
 {
-    pthread_mutex_lock(&ctx->lock_arp);
-    pthread_join(ctx->arp_thread, NULL);
+    /* Tell the ARP thread to exit (waking it up), and wait for it to do so.
+     * Note that we must not hold lock_arp while waiting, since the ARP
+     * thread needs it to exit. If the controller disconnected before the
+     * end of the configuration, the ARP thread will never have been started. */
+    if (ctx->arp_thread_started)
+    {
+        pthread_mutex_lock(&ctx->lock_arp);
+        ctx->arp_thread_stop = true;
+        pthread_cond_signal(&ctx->arp_thread_cond);
+        pthread_mutex_unlock(&ctx->lock_arp);
 
-    pthread_mutex_destroy(&ctx->lock_arp);
+        pthread_join(ctx->arp_thread, NULL);
+        ctx->arp_thread_started = false;
+    }
 
     chirouter_pending_arp_req_t *elt, *tmp;
 
@@ -162,5 +156,16 @@ int chirouter_ctx_destroy(chirouter_ctx_t *ctx)
         free(elt);
     }
 
-    return 0;
+    free(ctx->interfaces);
+    ctx->interfaces = NULL;
+    ctx->num_interfaces = 0;
+
+    free(ctx->routing_table);
+    ctx->routing_table = NULL;
+    ctx->num_rtable_entries = 0;
+
+    pthread_cond_destroy(&ctx->arp_thread_cond);
+    pthread_mutex_destroy(&ctx->lock_arp);
+
+    return CHIROUTER_OK;
 }

@@ -1,132 +1,291 @@
-import json
-import ipaddress
-import struct
+# Network topologies
+#
+# A topology (loaded from one of the JSON files in the topologies/ directory)
+# specifies the hosts, switches, and chirouter-managed routers in a simulated
+# network (including the interfaces and routing tables of the routers),
+# and how they are linked together.
+
+from __future__ import annotations
+
 import binascii
+import ipaddress
+import json
+from typing import IO, Any, Self
 
 
-class Interface(object):
+def check_fields(d: dict[str, Any], fields: tuple[str, ...],
+                 what: str) -> None:
+    '''
+    Checks that a dictionary (from a topology file) has some fields.
 
-    def __init__(self, name, iface, hwaddr=None, gateway=None):
+    Inputs:
+      d (dict): the dictionary.
+      fields (tuple of str): the names of the fields.
+      what (str): what the dictionary represents (used in error messages).
+
+    Returns: nothing. Raises a ValueError if a field is missing.
+    '''
+    for f in fields:
+        if f not in d:
+            raise ValueError("{} is missing '{}' field".format(what, f))
+
+
+class Interface:
+    '''
+    A network interface (in a host or a router)
+    '''
+
+    def __init__(self, name: str, iface: ipaddress.IPv4Interface,
+                 hwaddr: str | None = None,
+                 gateway: ipaddress.IPv4Address | None = None) -> None:
+        '''
+        Constructor
+
+        Inputs:
+          name (str): name of the interface (e.g., "eth0").
+          iface (IPv4Interface): IP address and netmask of the interface.
+          hwaddr (str | None): MAC address of the interface (e.g.,
+            "02:00:00:00:00:01"), if known.
+          gateway (IPv4Address | None): default gateway, for host interfaces.
+        '''
         self.name = name
         self._iface = iface
         self.hwaddr = hwaddr
         self.gateway = gateway
 
     @property
-    def ip_with_prefixlen(self):
+    def ip_with_prefixlen(self) -> str:
+        '''
+        The IP address of the interface, with the length of the network
+        prefix (e.g., "10.0.0.1/8")
+        '''
         return self._iface.with_prefixlen
 
     @property
-    def ip_packed(self):
+    def ip_packed(self) -> bytes:
+        '''
+        The IP address of the interface, as four bytes
+        '''
         return self._iface.packed
 
     @property
-    def hwaddr_packed(self):
-        return binascii.unhexlify(self.hwaddr.replace(":",""))
+    def hwaddr_packed(self) -> bytes:
+        '''
+        The MAC address of the interface, as six bytes (the MAC address
+        must have been set)
+        '''
+        assert self.hwaddr is not None
+        return binascii.unhexlify(self.hwaddr.replace(":", ""))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        '''
+        Returns:
+          (str) a representation of the interface (for debugging).
+        '''
         return "<Interface {} {}>".format(self.name, self.ip_with_prefixlen)
 
     @classmethod
-    def from_dict(cls, d):
-        for f in ("name", "ip", "mask"):
-            if f not in d:
-                raise ValueError("Interface is missing '{}' field".format(f))
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        '''
+        Creates an interface from its description in a topology file.
 
-        iface = ipaddress.ip_interface(u"{}/{}".format(d["ip"], d["mask"]))
+        Inputs:
+          d (dict): the interface's entry in the topology file.
+
+        Returns:
+          (Interface) the interface. Raises a ValueError if a field
+          is missing.
+        '''
+        check_fields(d, ("name", "ip", "mask"), "Interface")
+
+        iface = ipaddress.IPv4Interface("{}/{}".format(d["ip"], d["mask"]))
 
         hwaddr = d.get("hwaddr")
 
+        gateway: ipaddress.IPv4Address | None
         if "gateway" in d:
-            gateway = ipaddress.ip_address(d["gateway"])
+            gateway = ipaddress.IPv4Address(d["gateway"])
         else:
             gateway = None
 
         return cls(d["name"], iface, hwaddr, gateway)
 
-class RTableEntry(object):
 
-    def __init__(self, network, gateway_addr, metric, iface):
+class RTableEntry:
+    '''
+    An entry in a router's routing table
+    '''
+
+    def __init__(self, network: ipaddress.IPv4Interface,
+                 gateway_addr: ipaddress.IPv4Address,
+                 metric: int, iface: str) -> None:
+        '''
+        Constructor
+
+        Inputs:
+          network (IPv4Interface): destination network (and netmask).
+          gateway_addr (IPv4Address): gateway (0.0.0.0 if there is no gateway).
+          metric (int): metric of this entry.
+          iface (str): name of the router interface for this entry.
+        '''
         self.network = network
         self.gateway_addr = gateway_addr
-
-        if struct.unpack_from("!I", gateway_addr.packed)[0] != 0:
-            self.is_gateway = True
-        else:
-            self.is_gateway = False
-
+        self.is_gateway = int(gateway_addr) != 0
         self.metric = metric
         self.iface = iface
 
     @classmethod
-    def from_dict(cls, d):
-        for f in ("destination", "gateway", "mask", "metric", "iface"):
-            if f not in d:
-                raise ValueError("Routing Table Entry is missing '{}' field".format(f))
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        '''
+        Creates a routing table entry from its description in a topology file.
 
-        network = ipaddress.ip_interface(u"{}/{}".format(d["destination"], d["mask"]))
-        gateway_addr = ipaddress.ip_address(d["gateway"])
+        Inputs:
+          d (dict): the entry in the topology file.
+
+        Returns:
+          (RTableEntry) the routing table entry. Raises a ValueError if a
+          field is missing.
+        '''
+        check_fields(d, ("destination", "gateway", "mask", "metric", "iface"),
+                     "Routing Table Entry")
+
+        network = ipaddress.IPv4Interface(
+            "{}/{}".format(d["destination"], d["mask"]))
+        gateway_addr = ipaddress.IPv4Address(d["gateway"])
 
         return cls(network, gateway_addr, d["metric"], d["iface"])
 
 
-class Switch(object):
+class Switch:
+    '''
+    A switch (which will be simulated with a Linux bridge)
+    '''
 
-    def __init__(self, id):
+    def __init__(self, id: int) -> None:
+        '''
+        Constructor
+
+        Inputs:
+          id (int): ID of the switch.
+        '''
         self.id = id
-        self.interfaces = {}
+        self.interfaces: dict[str, Interface] = {}
 
     @property
-    def name(self):
+    def name(self) -> str:
+        '''
+        The name of the switch in Mininet
+        '''
         return "s{}".format(self.id)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        '''
+        Returns:
+          (str) a representation of the switch (for debugging).
+        '''
         return "<Switch {}>".format(self.name)
 
     @classmethod
-    def from_dict(cls, d):
-        if "id" not in d:
-            raise ValueError("Switch is missing 'id' field")
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        '''
+        Creates a switch from its description in a topology file.
+
+        Inputs:
+          d (dict): the switch's entry in the topology file.
+
+        Returns:
+          (Switch) the switch. Raises a ValueError if a field is missing.
+        '''
+        check_fields(d, ("id",), "Switch")
 
         return cls(d["id"])
 
 
 class Router(Switch):
+    '''
+    A chirouter-managed router
+    '''
 
-    def __init__(self, id):
-        super(Router, self).__init__(id)
+    def __init__(self, id: int) -> None:
+        '''
+        Constructor
 
-        self.rtable = []
+        Inputs:
+          id (int): ID of the router.
+        '''
+        super().__init__(id)
+
+        self.rtable: list[RTableEntry] = []
 
     @property
-    def name(self):
+    def name(self) -> str:
+        '''
+        The name of the router in Mininet (and in chirouter)
+        '''
         return "r{}".format(self.id)
 
     @property
-    def num_interfaces(self):
+    def num_interfaces(self) -> int:
+        '''
+        The number of interfaces in the router
+        '''
         return len(self.interfaces)
 
     @property
-    def len_rtable(self):
+    def len_rtable(self) -> int:
+        '''
+        The number of entries in the router's routing table
+        '''
         return len(self.rtable)
 
-    def add_interface(self, iface):
+    def add_interface(self, iface: Interface) -> None:
+        '''
+        Adds an interface to the router.
+
+        Inputs:
+          iface (Interface): the interface.
+
+        Returns: nothing.
+        '''
         self.interfaces[iface.name] = iface
 
-    def add_rtable_entry(self, rtable_entry):
+    def add_rtable_entry(self, rtable_entry: RTableEntry) -> None:
+        '''
+        Adds an entry to the router's routing table.
+
+        Inputs:
+          rtable_entry (RTableEntry): the entry. Its interface must
+            have already been added to the router.
+
+        Returns: nothing. Raises a ValueError if the entry's interface
+        is not one of the router's interfaces.
+        '''
         if rtable_entry.iface not in self.interfaces:
-            raise ValueError("Incorrect interface in routing table entry: {}".format(rtable_entry.iface))
+            raise ValueError("Incorrect interface in routing table entry: {}"
+                             .format(rtable_entry.iface))
 
         self.rtable.append(rtable_entry)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        '''
+        Returns:
+          (str) a representation of the router (for debugging).
+        '''
         return "<Router {}>".format(self.name)
 
     @classmethod
-    def from_dict(cls, d):
-        for f in ("id", "interfaces", "rtable"):
-            if f not in d:
-                raise ValueError("Router is missing '{}' field".format(f))
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        '''
+        Creates a router from its description in a topology file.
+
+        Inputs:
+          d (dict): the router's entry in the topology file.
+
+        Returns:
+          (Router) the router. Raises a ValueError if the description
+          is not correct.
+        '''
+        check_fields(d, ("id", "interfaces", "rtable"), "Router")
 
         router = cls(d["id"])
 
@@ -138,92 +297,184 @@ class Router(Switch):
 
         return router
 
-class Host(object):
 
-    def __init__(self, id, hostname):
+class Host:
+    '''
+    A host
+    '''
+
+    def __init__(self, id: int, hostname: str) -> None:
+        '''
+        Constructor
+
+        Inputs:
+          id (int): ID of the host.
+          hostname (str): name of the host.
+        '''
         self.id = id
         self.hostname = hostname
-        self.interfaces = {}
-        self.attrs = set()
+        self.interfaces: dict[str, Interface] = {}
+
+        # Attributes of the host (e.g., "httpd" if the host runs a web server)
+        self.attrs: set[str] = set()
 
     @property
-    def name(self):
+    def name(self) -> str:
+        '''
+        The name of the host in Mininet
+        '''
         return self.hostname
 
+    def add_interface(self, iface: Interface) -> None:
+        '''
+        Adds an interface to the host.
 
-    def add_interface(self, iface):
+        Inputs:
+          iface (Interface): the interface.
+
+        Returns: nothing.
+        '''
         self.interfaces[iface.name] = iface
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        '''
+        Returns:
+          (str) a representation of the host (for debugging).
+        '''
         return "<Host {}>".format(self.name)
 
     @classmethod
-    def from_dict(cls, d):
-        for f in ("id", "hostname", "interfaces"):
-            if f not in d:
-                raise ValueError("Host is missing '{}' field".format(f))
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        '''
+        Creates a host from its description in a topology file.
+
+        Inputs:
+          d (dict): the host's entry in the topology file.
+
+        Returns:
+          (Host) the host. Raises a ValueError if a field is missing.
+        '''
+        check_fields(d, ("id", "hostname", "interfaces"), "Host")
 
         host = cls(d["id"], d["hostname"])
 
         for iface in d["interfaces"]:
             host.add_interface(Interface.from_dict(iface))
 
-        if "attrs" in d:
-            for a in d["attrs"]:
-                host.attrs.add(a)
+        for a in d.get("attrs", []):
+            host.attrs.add(a)
 
         return host
 
-class Topology(object):
-    
-    def __init__(self):
-        self.switches = []
-        self.routers = []
-        self.hosts = []
-        self.links = []
 
-        self.nodes = {}
+# A node in the topology
+Node = Switch | Router | Host
+
+# A link between two nodes: (node, interface name, node, interface name).
+# The interface names are None for switch ports.
+Link = tuple[Node, str | None, Node, str | None]
+
+
+class Topology:
+    '''
+    A network topology
+    '''
+
+    def __init__(self) -> None:
+        '''
+        Constructor (creates an empty topology)
+        '''
+        self.switches: list[Switch] = []
+        self.routers: list[Router] = []
+        self.hosts: list[Host] = []
+        self.links: list[Link] = []
+
+        # All the nodes, indexed by ID
+        self.nodes: dict[int, Node] = {}
 
     @property
-    def num_routers(self):
+    def num_routers(self) -> int:
+        '''
+        The number of chirouter-managed routers in the topology
+        '''
         return len(self.routers)
 
-    def add_switch(self, s):
+    def add_switch(self, s: Switch) -> None:
+        '''
+        Adds a switch to the topology.
+
+        Inputs:
+          s (Switch): the switch.
+
+        Returns: nothing.
+        '''
         self.switches.append(s)
         self.nodes[s.id] = s
 
-    def add_router(self, r):
+    def add_router(self, r: Router) -> None:
+        '''
+        Adds a router to the topology.
+
+        Inputs:
+          r (Router): the router.
+
+        Returns: nothing.
+        '''
         self.routers.append(r)
         self.nodes[r.id] = r
 
-    def add_host(self, h):
+    def add_host(self, h: Host) -> None:
+        '''
+        Adds a host to the topology.
+
+        Inputs:
+          h (Host): the host.
+
+        Returns: nothing.
+        '''
         self.hosts.append(h)
         self.nodes[h.id] = h
 
-    def add_link(self, src, dst, src_iface = None, dst_iface = None):
-        if src_iface and src_iface not in src.interfaces:
-            raise ValueError("Cannot add link. Node {} has no such interface: {}".format(src, src_iface))
+    def add_link(self, src: Node, dst: Node, src_iface: str | None = None,
+                 dst_iface: str | None = None) -> None:
+        '''
+        Adds a link between two nodes to the topology.
 
-        if dst_iface and dst_iface not in dst.interfaces:
-            raise ValueError("Cannot add link. Node {} has no such interface: {}".format(dst, dst_iface))
+        Inputs:
+          src, dst (Node): the nodes.
+          src_iface, dst_iface (str | None): the names of the interfaces
+            in each node (or None for switches).
 
-        self.links.append( (src, src_iface, dst, dst_iface) )
+        Returns: nothing. Raises a ValueError if a node doesn't have the
+        specified interface.
+        '''
+        for node, iface in ((src, src_iface), (dst, dst_iface)):
+            if iface and iface not in node.interfaces:
+                raise ValueError("Cannot add link. Node {} has no such "
+                                 "interface: {}".format(node, iface))
+
+        self.links.append((src, src_iface, dst, dst_iface))
 
     @classmethod
-    def from_json(cls, json_file):
+    def from_json(cls, json_file: IO[str]) -> Self:
+        '''
+        Loads a topology from a JSON file.
+
+        Inputs:
+          json_file (file): the topology file.
+
+        Returns:
+          (Topology) the topology. Raises a ValueError if the topology
+          file is not correct.
+        '''
         t = json.load(json_file)
 
-        for f in ("switches", "hosts", "links"):
-            if f not in t:
-                raise ValueError("Topology field is missing '{}' field".format(f))
+        check_fields(t, ("switches", "hosts", "links"), "Topology")
 
         topo = cls()
 
-        switches = []
-        routers = []
         for s in t["switches"]:
-            if "type" not in s:
-                raise ValueError("Switch is missing 'type' field")
+            check_fields(s, ("type",), "Switch")
             if s["type"] == "switch":
                 topo.add_switch(Switch.from_dict(s))
             elif s["type"] == "router":
@@ -231,43 +482,54 @@ class Topology(object):
             else:
                 raise ValueError("Unknown switch type: '{}'".format(s["type"]))
 
-        hosts = []
         for h in t["hosts"]:
             topo.add_host(Host.from_dict(h))
 
-        for l in t["links"]:
-            src = topo.nodes[l["from"]["id"]]
-            dst = topo.nodes[l["to"]["id"]]
+        for link in t["links"]:
+            src = topo.nodes[link["from"]["id"]]
+            dst = topo.nodes[link["to"]["id"]]
 
-            src_iface = l["from"].get("interface")
-            dst_iface = l["to"].get("interface")
+            src_iface = link["from"].get("interface")
+            dst_iface = link["to"].get("interface")
 
             topo.add_link(src, dst, src_iface, dst_iface)
 
         return topo
 
-    def to_mininet_topology(self):
+    def to_mininet_topology(self) -> Any:
+        '''
+        Creates a Mininet topology for this topology. Hosts are Mininet
+        hosts, switches are BridgeSwitches (see switch.py), and routers are
+        RouterNodes (see relay.py).
+
+        Returns:
+          (mininet.topo.Topo) the Mininet topology.
+        '''
         import mininet.topo
+        from chirouter.relay import RouterNode
+        from chirouter.switch import BridgeSwitch
 
         topo = mininet.topo.Topo()
 
         for h in self.hosts:
-            mn_host = topo.addHost(h.hostname)
+            topo.addHost(h.hostname)
 
-        for s in self.switches + self.routers:
-            mn_switch = topo.addSwitch(s.name)
+        for s in self.switches:
+            topo.addSwitch(s.name, cls=BridgeSwitch)
+
+        for r in self.routers:
+            topo.addSwitch(r.name, cls=RouterNode)
 
         for src, src_iface, dst, dst_iface in self.links:
+            intf_name1: str | None = None
+            intf_name2: str | None = None
+
             if src_iface is not None:
-                intfName1 = src.name + "-" + src_iface
-            else:
-                intfName1 = None
-                
+                intf_name1 = src.name + "-" + src_iface
             if dst_iface is not None:
-                intfName2 = dst.name + "-" + dst_iface
-            else:
-                intfName2 = None                
-                
-            topo.addLink(src.name, dst.name, intfName1=intfName1, intfName2=intfName2)
+                intf_name2 = dst.name + "-" + dst_iface
+
+            topo.addLink(src.name, dst.name,
+                         intfName1=intf_name1, intfName2=intf_name2)
 
         return topo

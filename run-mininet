@@ -1,70 +1,105 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
-import os, sys
+# Runs a simulated network (with Mininet), connected to chirouter.
+#
+# Must be run as root, from the root of the chirouter directory.
+#
+# Usage: run-mininet TOPOLOGY_FILE [--chirouter HOST:PORT]
+
+import os
+import sys
+
 import click
-from mininet.node import RemoteController, Ryu
 
-dir_path = os.path.dirname(os.path.realpath(__file__))
-src_path = dir_path + '/src/python'
-sys.path.insert(0, src_path)
-
-
-try:
-    import chirouter.simulator as simulator
-except ImportError as ie:
-    print(ie)
-    print("Could not import chirouter packages.")
-    print("Please make sure you run this command from your chirouter directory.")
-    sys.exit(1)
+# Where chirouter is running, if --chirouter is not specified. In the
+# Docker container, chirouter runs on the host machine (which the container
+# can reach as host.docker.internal), and Docker creates DOCKERENV_FILE in
+# the container (we use it to check whether we're running in it).
+DEFAULT_CHIROUTER_HOST = "localhost"
+DEFAULT_CHIROUTER_HOST_DOCKER = "host.docker.internal"
+DEFAULT_CHIROUTER_PORT = 23320
+DOCKERENV_FILE = "/.dockerenv"
 
 
-def validate_host(ctx, param, value):
+def validate_host(ctx: click.Context, param: click.Parameter,
+                  value: str | None) -> tuple[str, int] | None:
+    '''
+    Validates the value of the --chirouter option (click callback).
+
+    Inputs:
+      ctx (click.Context): the click context.
+      param (click.Parameter): the option.
+      value (str | None): the value of the option ("HOST:PORT"), or None
+        if the option was not specified.
+
+    Returns:
+      (tuple of str and int | None) the host and port, or None if the
+      option was not specified. Raises click.BadParameter if the value
+      is not in the HOST:PORT format.
+    '''
     if value is None:
         return None
 
     try:
         host, port = value.split(":")
-        port = int(port)
-        return host, port
+        return host, int(port)
     except ValueError:
         raise click.BadParameter("Host needs to be in format HOST:PORT")
 
 
 @click.command(name="run-mininet")
 @click.argument('topo_file', type=click.Path(exists=True))
-@click.option('--chirouter', callback=validate_host, metavar="HOST:PORT", help="Host and port of chirouter")
-@click.option('--remote-controller', callback=validate_host, metavar="HOST:PORT", help="Host and port of remote controller")
-def cmd(topo_file, chirouter, remote_controller):
-    if chirouter is not None and remote_controller is not None:
-        exit("You cannot specify both the --chirouter and --remote-controller options")
+@click.option('--chirouter', callback=validate_host, metavar="HOST:PORT",
+              help="Host and port of chirouter")
+def cmd(topo_file: str, chirouter: tuple[str, int] | None) -> None:
+    '''
+    Runs the simulated network (see the top of this file).
 
+    Inputs:
+      topo_file (str): path to the topology file.
+      chirouter (tuple of str and int | None): host and port of chirouter.
+
+    Returns: nothing. Exits with an error if not run as root, if the
+    chirouter packages cannot be imported, or if chirouter cannot be
+    reached.
+    '''
     if os.geteuid() != 0:
-        exit("Mininet must be run as root. Please try running with 'sudo'.")
+        sys.exit("Mininet must be run as root. "
+                 "Please try running with 'sudo'.")
 
-    topo_file = os.path.abspath(topo_file)
+    src_path = os.path.dirname(os.path.realpath(__file__)) + '/src/python'
+    sys.path.insert(0, src_path)
 
-    if remote_controller is not None:
-        # Connect to a remote controller
-        rhost, rport = remote_controller
-        controller = RemoteController("c0", ip=rhost, port=rport)
+    try:
+        import chirouter.simulator as simulator
+    except ImportError as ie:
+        print(ie)
+        print("Could not import chirouter packages.")
+        print("Please make sure you run this command from your "
+              "chirouter directory.")
+        sys.exit(1)
+
+    if chirouter is not None:
+        chirouter_host, chirouter_port = chirouter
+    elif os.path.exists(DOCKERENV_FILE):
+        chirouter_host = DEFAULT_CHIROUTER_HOST_DOCKER
+        chirouter_port = DEFAULT_CHIROUTER_PORT
     else:
-        # Launch a Ryu-based controller
-        if chirouter is None:
-            chirouter_host, chirouter_port = "localhost", 23320
-        else:
-            chirouter_host, chirouter_port = chirouter
+        chirouter_host = DEFAULT_CHIROUTER_HOST
+        chirouter_port = DEFAULT_CHIROUTER_PORT
 
-        command = "PYTHONPATH=./src/python/ ryu-manager"
-
-        params  = ["chirouter.controller"]
-        params += ["--user-flags src/python/chirouter/ryu_flags.py"]
-        params += ["--chirouter-topology-file=" + topo_file]
-        params += ["--chirouter-host=" + chirouter_host]
-        params += ["--chirouter-port=" + str(chirouter_port)]
-
-        controller = Ryu("c0", command=command, ryuArgs=params)
-
-    simulator.run(topo_file=topo_file, controller=controller)
+    try:
+        simulator.run(topo_file=os.path.abspath(topo_file),
+                      chirouter_host=chirouter_host,
+                      chirouter_port=chirouter_port)
+    except OSError as ose:
+        print(f"Could not connect to chirouter at {chirouter_host}:"
+              f"{chirouter_port} ({ose.strerror or ose}).")
+        print("Please make sure chirouter is running (if you are running "
+              "it on a port other than")
+        print(f"{DEFAULT_CHIROUTER_PORT}, use --chirouter HOST:PORT to "
+              "specify where it is running).")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -4,21 +4,20 @@
  *  This module contains the code that manages the ARP cache and
  *  the list of pending ARP requests.
  *
- *  Most importantly, this module defines a function chirouter_arp_process
- *  that is run as a separate thread, and which will wake up every second
- *  to purge stale entries in the ARP cache (entries that are more than 15 seconds
- *  old) and to traverse the list of pending ARP requests. For each pending
- *  request in the list, it will call chirouter_arp_process_pending_req,
- *  which must either re-send the pending ARP request or cancel the
- *  request and send ICMP Host Unreachable messages in reply to all
- *  the withheld frames.
+ *  Most importantly, this module defines a function chirouter_arp_process that
+ *  is run as a separate thread, and which will wake up every second to purge
+ *  stale entries in the ARP cache (entries that are more than 15 seconds old)
+ *  and to traverse the list of pending ARP requests. For each pending request
+ *  in the list, it will call chirouter_arp_process_pending_req, which must
+ *  either re-send the pending ARP request or cancel the request and send ICMP
+ *  Host Unreachable messages in reply to all the withheld frames.
  *
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -60,13 +59,17 @@
  *
  */
 
-#ifndef CHIROUTER_ARPCACHE_H
-#define CHIROUTER_ARPCACHE_H
+#ifndef ARP_H_
+#define ARP_H_
 
 #include <inttypes.h>
 #include <time.h>
 #include <pthread.h>
 #include "chirouter.h"
+
+/* Number of times an ARP request is sent (without getting a reply)
+ * before giving up and sending ICMP Host Unreachable messages */
+#define ARP_MAX_REQUESTS (5)
 
 
 /*
@@ -84,7 +87,8 @@
  *          that entry in the cache.
  *          If no such entry exists, returns NULL.
  */
-chirouter_arpcache_entry_t* chirouter_arp_cache_lookup(chirouter_ctx_t *ctx, struct in_addr *ip);
+chirouter_arpcache_entry_t* chirouter_arp_cache_lookup(chirouter_ctx_t *ctx,
+        const struct in_addr *ip);
 
 
 /*
@@ -93,14 +97,19 @@ chirouter_arpcache_entry_t* chirouter_arp_cache_lookup(chirouter_ctx_t *ctx, str
  * Note: The lock_arp mutex in the router context must be locked before
  *       calling this function
  *
+ * If the ARP cache already contains an entry for the IP address, that
+ * entry is updated with the new MAC address (and its timeout is reset)
+ * instead of adding a new entry.
+ *
  * ctx: Router context
  *
  * ip, mac: IP address (and MAC address corresponding to that IP address)
  *          to be added to the cache.
  *
- * Returns: 0 on success, 1 on error.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR on error.
  */
-int chirouter_arp_cache_add(chirouter_ctx_t *ctx, struct in_addr *ip, uint8_t *mac);
+int chirouter_arp_cache_add(chirouter_ctx_t *ctx, const struct in_addr *ip,
+                            const uint8_t *mac);
 
 
 /*
@@ -113,16 +122,17 @@ int chirouter_arp_cache_add(chirouter_ctx_t *ctx, struct in_addr *ip, uint8_t *m
  *
  * ip: IP address of the pending ARP request.
  *
- * Returns: If the list of pending ARP requests contains a pending request for the IP address,
- *          returns a pointer to the chirouter_pending_arp_req_t struct corresponding to
- *          that pending request.
- *          If no such pending request exists, returns NULL.
+ * Returns: If the list of pending ARP requests contains a pending request for
+ *          the IP address, returns a pointer to the chirouter_pending_arp_req_t
+ *          struct corresponding to that pending request. If no such pending
+ *          request exists, returns NULL.
  */
-chirouter_pending_arp_req_t* chirouter_arp_pending_req_lookup(chirouter_ctx_t *ctx, struct in_addr *ip);
+chirouter_pending_arp_req_t* chirouter_arp_pending_req_lookup(
+    chirouter_ctx_t *ctx, const struct in_addr *ip);
 
 
 /*
- * chirouter_arp_pending_req_add - Add a pending ARP request to the pending ARP request list
+ * chirouter_arp_pending_req_add - Add a pending ARP request to the list
  *
  * Note: The lock_arp mutex in the router context must be locked before
  *       calling this function. This function also does not check whether
@@ -130,20 +140,27 @@ chirouter_pending_arp_req_t* chirouter_arp_pending_req_lookup(chirouter_ctx_t *c
  *       chirouter_arp_pending_req_lookup to verify that no such pending
  *       request exists before calling this function.
  *
+ *       The new pending request will have its times_sent field set to 0,
+ *       and its last_sent field set to the current time. This function
+ *       does not send the ARP request itself, so you are responsible for
+ *       updating times_sent every time you send the ARP request
+ *       (including the first time).
+ *
  * ctx: Router context
  *
  * ip: IP address of the pending ARP request.
  *
  * iface: Router interface on which the ARP request was sent.
  *
- * Returns: A pointer to the pending request (a chirouter_pending_arp_req_t struct)
- *          that was added to the pending ARP request list.
+ * Returns: A pointer to the pending request (a chirouter_pending_arp_req_t
+ *          struct) that was added to the pending ARP request list.
  */
-chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx, struct in_addr *ip, chirouter_interface_t *iface);
+chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx,
+        const struct in_addr *ip, chirouter_interface_t *iface);
 
 
 /*
- * chirouter_arp_pending_req_add_frame - Add an Ethernet frame to a pending ARP request list
+ * chirouter_arp_pending_req_add_frame - Add a frame to a pending ARP request
  *
  * Note: The lock_arp mutex in the router context must be locked before
  *       calling this function.
@@ -152,26 +169,45 @@ chirouter_pending_arp_req_t* chirouter_arp_pending_req_add(chirouter_ctx_t *ctx,
  *
  * pending_req: Pending request that the frame should be added to.
  *
- * frame: Frame to be added. Note: This function will make a deep copy of the frame
- *        and will add that copy to the list of withheld frames.
+ * frame: Frame to be added. Note: This function will make a deep copy of the
+ *        frame and will add that copy to the list of withheld frames.
  *
- * Returns: 0 on success, 1 on error.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR on error.
  */
-int chirouter_arp_pending_req_add_frame(chirouter_ctx_t *ctx, chirouter_pending_arp_req_t *pending_req, ethernet_frame_t *frame);
+int chirouter_arp_pending_req_add_frame(
+    chirouter_ctx_t *ctx,
+    chirouter_pending_arp_req_t *pending_req,
+    const ethernet_frame_t *frame);
 
 
 /*
- * chirouter_arp_pending_req_free_frames - Frees all the frames associated with a pending ARP request
+ * chirouter_arp_pending_req_free_frames - Free a pending request's frames
  *
  * Note: The lock_arp mutex in the router context must be locked before
  *       calling this function.
  *
  * pending_req: Pending request whose frames will be freed
  *
- * Returns: 0 on success, 1 on error.
+ * Returns: CHIROUTER_OK on success, CHIROUTER_ERROR on error.
  */
-int chirouter_arp_pending_req_free_frames(chirouter_pending_arp_req_t *pending_req);
+int chirouter_arp_pending_req_free_frames(chirouter_pending_arp_req_t
+        *pending_req);
 
+
+
+/*
+ * chirouter_arp_time_now - Returns the current time (for ARP timestamps)
+ *
+ * The timestamps in the ARP cache (time_added) and in the pending ARP
+ * requests (last_sent) are taken from a monotonic clock, which is not
+ * affected by changes to the system time. You must use this function
+ * (and not time()) to set those timestamps, or to compare them with the
+ * current time (e.g., with difftime).
+ *
+ * Returns: The current time, in seconds (since an unspecified point
+ *          in the past).
+ */
+time_t chirouter_arp_time_now(void);
 
 
 /* DO NOT USE THIS FUNCTION */
@@ -179,4 +215,4 @@ int chirouter_arp_pending_req_free_frames(chirouter_pending_arp_req_t *pending_r
  * and processes the pending ARP requests. The thread is created in server.c */
 void* chirouter_arp_process(void *args);
 
-#endif
+#endif /* ARP_H_ */

@@ -1,57 +1,54 @@
-# Based on https://github.com/iwaseyusuke/docker-mininet/tree/main
-
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 USER root
 WORKDIR /chirouter
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY docker/ENTRYPOINT.sh docker/run-tests docker/run-grade run-mininet run-controller /chirouter/
-COPY scripts/webserver.py /chirouter/scripts/
-COPY topologies/ /chirouter/topologies/
-COPY src/python/chirouter/*.py /chirouter/src/python/chirouter/
-COPY src/python/chirouter/tests/ /chirouter/src/python/chirouter/tests/
+# Ubuntu 24.04 doesn't allow installing Python packages system-wide
+# with pip (PEP 668). That's fine inside this container.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
-# Install tools and dependencies
+# Install tools and dependencies. The versions of the Python packages are
+# pinned so that rebuilding the image doesn't change how the tests behave
+# (in particular, the tests depend on how jc parses the output of ping and
+# traceroute). Mininet only needs iproute2 and net-tools, and ethtool (to
+# disable offloads); Open vSwitch is not needed.
 RUN <<EOF
-apt update && apt install -y --no-install-recommends \
-  wget dnsutils iputils-ping traceroute net-tools \
-  sudo nano less curl patch python3-pip git \
-  libssl-dev libxml2-dev libxslt1-dev
-pip3 install click pytest pytest-json
+apt-get update && apt-get install -y --no-install-recommends \
+  iproute2 net-tools ethtool \
+  iputils-ping traceroute wget curl dnsutils \
+  sudo nano less psmisc \
+  python3 python3-pip python3-pexpect python3-packaging \
+  git make gcc libc6-dev
+pip3 install click==8.5.0 pytest==9.2.0 pytest-json-report==1.5.0 jc==1.26.2
 EOF
 
-# Install mininet
+# Install Mininet (only the Python package and mnexec; we don't
+# use Mininet's install.sh, since we don't need Open vSwitch or
+# any OpenFlow controllers)
 RUN <<EOF
 cd /tmp
-git clone https://github.com/mininet/mininet
+git clone --depth 1 --branch 2.3.1b4 https://github.com/mininet/mininet
 cd mininet
-git checkout -b mininet-2.3.1b4 2.3.1b4
-cd ..
-PYTHON=python3 mininet/util/install.sh -nfv
-EOF
-
-# Install Ryu
-# We're installing a fork of the official Ryu repository because
-# the official repository won't work on Ubuntu 22.04
-# (https://github.com/faucetsdn/ryu/issues/169). In the
-# long term, we should switch to a different controller, since
-# Ryu is no longer actively maintained.
-RUN <<EOF
-cd /opt
-git clone https://github.com/paaguti/ryu.git
-cd ryu
+make PYTHON=python3 mnexec
+install mnexec /usr/bin/
 pip3 install .
-pip3 install dnspython==2.2.1
+cd /tmp
+rm -rf mininet
 EOF
 
 # Cleanup
 RUN <<EOF
-apt remove -y --purge "*-dev" "libgl1*" libllvm15
-apt autoremove
+apt-get remove -y --purge git make gcc libc6-dev
+apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
-touch /etc/network/interfaces
-chmod +x /chirouter/ENTRYPOINT.sh /chirouter/run-tests /chirouter/run-grade
 EOF
+
+COPY docker/ENTRYPOINT.sh docker/run-tests docker/run-grade run-mininet /chirouter/
+COPY scripts/webserver.py /chirouter/scripts/
+COPY topologies/ /chirouter/topologies/
+COPY src/python/chirouter/*.py /chirouter/src/python/chirouter/
+COPY src/python/chirouter/tests/ /chirouter/src/python/chirouter/tests/
+RUN chmod +x /chirouter/ENTRYPOINT.sh /chirouter/run-tests /chirouter/run-grade /chirouter/run-mininet
 
 ENTRYPOINT ["/chirouter/ENTRYPOINT.sh"]

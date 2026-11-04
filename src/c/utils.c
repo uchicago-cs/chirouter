@@ -6,9 +6,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -60,40 +60,71 @@
 #include "protocols/ethernet.h"
 #include "utils.h"
 
+
+
 /* See utils.h */
-uint16_t cksum (const void *_data, int len)
+void *xmalloc(size_t size)
 {
-      const uint8_t *data = _data;
-      uint32_t sum;
-
-      for (sum = 0;len >= 2; data += 2, len -= 2)
-      {
-        sum += data[0] << 8 | data[1];
-      }
-
-      if (len > 0)
-      {
-        sum += data[0] << 8;
-      }
-
-      while (sum > 0xffff)
-      {
-        sum = (sum >> 16) + (sum & 0xffff);
-      }
-
-      sum = htons (~sum);
-
-      return sum ? sum : 0xffff;
+    void *p = malloc(size);
+    if (!p)
+    {
+        fprintf(stderr, "Out of memory\n");
+        abort();
+    }
+    return p;
 }
 
+
 /* See utils.h */
-bool ethernet_addr_is_equal(uint8_t *addr1, uint8_t *addr2)
+void *xcalloc(size_t nmemb, size_t size)
 {
-    for (int i=0; i<ETHER_ADDR_LEN; i++)
+    void *p = calloc(nmemb, size);
+    if (!p)
     {
-        if(addr1[i] != addr2[i])
+        fprintf(stderr, "Out of memory\n");
+        abort();
+    }
+    return p;
+}
+
+
+/* See utils.h */
+uint16_t cksum(const void *_data, size_t len)
+{
+    const uint8_t *data = _data;
+    uint32_t sum;
+
+    for (sum = 0; len >= 2; data += 2, len -= 2)
+    {
+        sum += data[0] << 8 | data[1];
+    }
+
+    if (len > 0)
+    {
+        sum += data[0] << 8;
+    }
+
+    while (sum > 0xffff)
+    {
+        sum = (sum >> 16) + (sum & 0xffff);
+    }
+
+    /* After folding the carries, sum fits in 16 bits */
+    uint16_t result = htons((uint16_t) ~sum);
+
+    return result ? result : 0xffff;
+}
+
+
+/* See utils.h */
+bool ethernet_addr_is_equal(const uint8_t *addr1, const uint8_t *addr2)
+{
+    for (int i = 0; i < ETHER_ADDR_LEN; i++)
+    {
+        if (addr1[i] != addr2[i])
             return false;
     }
     return true;
 }
+
 

@@ -1,11 +1,19 @@
+# Tests for the two-router topology (which requires gateway routes and
+# longest prefix match)
+
 import pytest
 
+from chirouter.tests import ChirouterTestRunner
 
-class TestICMP(object):
+
+class TestICMP:
+    '''
+    Tests that use ping
+    '''
 
     @pytest.mark.category("2ROUTER")
-    def test_ping_server(self, chirouter_runner):
-        """
+    def test_ping_server(self, chirouter_runner: ChirouterTestRunner) -> None:
+        '''
         Tests end-to-end functionality of the two-router topology by pinging
         host "server" from client100. Requires most/all router functionality
         to be implemented, including gateway routes and Longest Prefix Match.
@@ -25,23 +33,26 @@ class TestICMP(object):
             --- 172.16.0.2 ping statistics ---
             4 packets transmitted, 4 received, 0% packet loss, time 3003ms
             rtt min/avg/max/mdev = 14.397/26.179/47.084/12.428 ms
-        """
+        '''
         chirouter_runner.start_mininet("2router.json")
 
         ping = chirouter_runner.ping("client100", "172.16.0.2", count=4)
 
-        ping.validate_output_success(num_expected=4, expected_source="172.16.0.2")
+        ping.validate_output_success(num_expected=4,
+                                     expected_source="172.16.0.2",
+                                     expected_ttl=62)
 
     @pytest.mark.category("2ROUTER")
-    def test_ping_client100(self, chirouter_runner):
-        """
+    def test_ping_client100(
+            self, chirouter_runner: ChirouterTestRunner) -> None:
+        '''
         Tests end-to-end functionality of the two-router topology by pinging
         client100 from host "server". Requires most/all router functionality
         to be implemented, including gateway routes and Longest Prefix Match.
 
         Equivalent to running this:
 
-            erver ping -c 4 client100
+            mininet> server ping -c 4 client100
 
         And seeing four successful replies:
 
@@ -54,18 +65,25 @@ class TestICMP(object):
             --- 10.0.100.42 ping statistics ---
             4 packets transmitted, 4 received, 0% packet loss, time 3004ms
             rtt min/avg/max/mdev = 15.620/28.472/41.226/12.413 ms
-        """
+        '''
         chirouter_runner.start_mininet("2router.json")
 
         ping = chirouter_runner.ping("server", "10.0.100.42", count=4)
 
-        ping.validate_output_success(num_expected=4, expected_source="10.0.100.42")
+        ping.validate_output_success(num_expected=4,
+                                     expected_source="10.0.100.42",
+                                     expected_ttl=62)
+
 
 class TestTraceroute:
+    '''
+    Tests that use traceroute
+    '''
 
     @pytest.mark.category("2ROUTER")
-    def test_traceroute_server(self, chirouter_runner):
-        """
+    def test_traceroute_server(
+            self, chirouter_runner: ChirouterTestRunner) -> None:
+        '''
         Tests end-to-end functionality of the two-router topology by doing a
         traceroute from client100 to host "server". Requires most/all router
         functionality to be implemented, including gateway routes and Longest
@@ -81,18 +99,19 @@ class TestTraceroute:
              1  10.0.100.1 (10.0.100.1)  46.325 ms  46.805 ms  46.789 ms
              2  192.168.1.1 (192.168.1.1)  93.086 ms  100.558 ms  99.434 ms
              3  172.16.0.2 (172.16.0.2)  100.553 ms  102.179 ms  136.987 ms
-        """
+        '''
         chirouter_runner.start_mininet("2router.json")
 
-        traceroute = chirouter_runner.traceroute("client100", "172.16.0.2", max_hops=5)
+        traceroute = chirouter_runner.traceroute("client100", "172.16.0.2",
+                                                 max_hops=5)
 
-        traceroute.validate_output(expected_hops = ["10.0.100.1",
-                                                    "192.168.1.1",
-                                                    "172.16.0.2"], max_timeouts=2)
+        expected_hops = ["10.0.100.1", "192.168.1.1", "172.16.0.2"]
+        traceroute.validate_output(expected_hops=expected_hops, max_timeouts=2)
 
     @pytest.mark.category("2ROUTER")
-    def test_traceroute_client100(self, chirouter_runner):
-        """
+    def test_traceroute_client100(
+            self, chirouter_runner: ChirouterTestRunner) -> None:
+        '''
         Tests end-to-end functionality of the two-router topology by doing a
         traceroute from host "server" to client100. Requires most/all router
         functionality to be implemented, including gateway routes and Longest
@@ -108,24 +127,28 @@ class TestTraceroute:
              1  172.16.0.1 (172.16.0.1)  39.088 ms  39.699 ms  39.682 ms
              2  192.168.1.10 (192.168.1.10)  57.754 ms  92.252 ms  90.556 ms
              3  10.0.100.42 (10.0.100.42)  92.981 ms  158.096 ms  160.074 ms
-        """
+        '''
         chirouter_runner.start_mininet("2router.json")
 
-        traceroute = chirouter_runner.traceroute("server", "10.0.100.42", max_hops=5)
+        traceroute = chirouter_runner.traceroute("server", "10.0.100.42",
+                                                 max_hops=5)
 
-        traceroute.validate_output(expected_hops = ["172.16.0.1",
-                                                    "192.168.1.10",
-                                                    "10.0.100.42"], max_timeouts=2)
+        expected_hops = ["172.16.0.1", "192.168.1.10", "10.0.100.42"]
+        traceroute.validate_output(expected_hops=expected_hops, max_timeouts=2)
+
 
 class TestWget:
+    '''
+    Tests that download a web page with wget
+    '''
 
     @pytest.mark.category("2ROUTER")
-    def test_wget_server(self, chirouter_runner):
-        """
+    def test_wget_server(self, chirouter_runner: ChirouterTestRunner) -> None:
+        '''
         Tests end-to-end functionality of the two-router topology by downloading
         a small file from the web server running in host "server". Requires
-        most/all router functionality to be implemented, including gateway routes
-        and Longest Prefix Match.
+        most/all router functionality to be implemented, including gateway
+        routes and Longest Prefix Match.
 
         Equivalent to running this:
 
@@ -140,10 +163,9 @@ class TestWget:
             Your router successfully routes your packets to and from server.<br/>
             </body>
             </html>
-        """
+        '''
         chirouter_runner.start_mininet("2router.json")
 
         wget = chirouter_runner.wget("client100", "172.16.0.2")
 
         wget.validate_output("server")
-

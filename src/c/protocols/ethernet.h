@@ -7,9 +7,9 @@
  */
 
 /*
- * This project is based on the Simple Router assignment included in the
- * Mininet project (https://github.com/mininet/mininet/wiki/Simple-Router) which,
- * in turn, is based on a programming assignment developed at Stanford
+ * This project is based on the Simple Router assignment included in the Mininet
+ * project (https://github.com/mininet/mininet/wiki/Simple-Router) which, in
+ * turn, is based on a programming assignment developed at Stanford
  * (http://www.scs.stanford.edu/09au-cs144/lab/router.html)
  *
  * While most of the code for chirouter has been written from scratch, some
@@ -56,26 +56,42 @@
 #ifndef PROTOCOLS_ETHERNET_H_
 #define PROTOCOLS_ETHERNET_H_
 
-#define ETHER_ADDR_LEN       (6)     /* Size of Ethernet address in bytes */
-#define ETHER_HDR_LEN        (14)    /* Size of Ethernet header in bytes */
-#define ETHER_FRAME_MIN_LEN  (60)    /* Minimum size of an Ethernet frame (not including CRC) */
-#define ETHER_FRAME_MAX_LEN  (1514)  /* Maximum size of an Ethernet frame (not including CRC) */
+/* The system headers for Ethernet (<net/ethernet.h>, <netinet/if_ether.h>)
+ * define some of the constants below (with the same values), so we only
+ * define them if they haven't already been defined */
+#ifndef ETHER_ADDR_LEN
+#define ETHER_ADDR_LEN       (6)     // Size of Ethernet address in bytes
+#endif
+#ifndef ETHER_HDR_LEN
+#define ETHER_HDR_LEN        (14)    // Size of Ethernet header in bytes
+#endif
+
+/* Minimum and maximum size of an Ethernet frame (not including the CRC) */
+#define ETHER_FRAME_MIN_LEN  (60)
+#define ETHER_FRAME_MAX_LEN  (1514)
 
 /* Ethertypes we care about */
-#define ETHERTYPE_IP         (0x0800)      /* IPv4 */
-#define ETHERTYPE_ARP        (0x0806)      /* ARP */
-#define ETHERTYPE_IPV6       (0x86DD)      /* IPv6 */
+#ifndef ETHERTYPE_IP
+#define ETHERTYPE_IP         (0x0800)      // IPv4
+#endif
+#ifndef ETHERTYPE_ARP
+#define ETHERTYPE_ARP        (0x0806)      // ARP
+#endif
+#ifndef ETHERTYPE_IPV6
+#define ETHERTYPE_IPV6       (0x86DD)      // IPv6
+#endif
 
 /* Ethernet header */
-struct ethhdr {
+struct chirouter_ethhdr
+{
     uint8_t   dst[ETHER_ADDR_LEN];
     uint8_t   src[ETHER_ADDR_LEN];
     uint16_t  type;
 } __attribute__((packed));
-typedef struct ethhdr ethhdr_t;
+typedef struct chirouter_ethhdr ethhdr_t;
 
 /* Returns pointer to the start of a frame's payload */
-#define ETHER_PAYLOAD_START(frame) (frame + sizeof(ethhdr_t))
+#define ETHER_PAYLOAD_START(frame) ((frame) + sizeof(ethhdr_t))
 
 
 #endif /* PROTOCOLS_ETHERNET_H_ */

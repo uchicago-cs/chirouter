@@ -40,6 +40,7 @@
  */
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
@@ -52,9 +53,27 @@
 #include "protocols/icmp.h"
 #include "log.h"
 
+/* chirouter_strerror uses the POSIX version of strerror_r (which returns
+ * an int). glibc declares the GNU version instead (which returns a char *)
+ * if _GNU_SOURCE is defined */
+#if defined(__GLIBC__) && defined(_GNU_SOURCE)
+#error "chirouter_strerror requires the POSIX version of strerror_r"
+#endif
+
+
+/* Number of bytes printed in each line of a hexdump (see chilog_hex) */
+#define HEXDUMP_BYTES_PER_LINE (16)
+
+/* Maximum length of a line of a hexdump: the offset, plus three
+ * characters per byte (and some room to spare) */
+#define HEXDUMP_LINE_LEN (74)
+
+/* Separator printed before and after the contents of a frame or message */
+#define LOG_SEPARATOR \
+    "   ######################################################################"
 
 /* Logging level. Set by default to print just errors */
-static int loglevel = ERROR;
+static loglevel_t loglevel = ERROR;
 
 
 /* See log.h */
@@ -65,19 +84,22 @@ void chirouter_setloglevel(loglevel_t level)
 
 
 /* See log.h */
-void chilog(loglevel_t level, char *fmt, ...)
+void chilog(loglevel_t level, const char *fmt, ...)
 {
     time_t t;
-    char buf[80], *levelstr;
+    struct tm tm;
+    char buf[80];
+    const char *levelstr;
     va_list argptr;
 
-    if(level > loglevel)
+    if (level > loglevel)
         return;
 
     t = time(NULL);
-    strftime(buf,80,"%Y-%m-%d %H:%M:%S",localtime(&t));
+    localtime_r(&t, &tm);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
 
-    switch(level)
+    switch (level)
     {
     case CRITICAL:
         levelstr = "CRITIC";
@@ -114,28 +136,39 @@ void chilog(loglevel_t level, char *fmt, ...)
 
 
 /* See log.h */
-void chilog_ethernet(loglevel_t level, uint8_t *frame, int len, char prefix)
+const char *chirouter_strerror(int errnum, char *buf, size_t buflen)
 {
-    if(level > loglevel)
+    if (strerror_r(errnum, buf, buflen) != 0)
+        snprintf(buf, buflen, "Unknown error %d", errnum);
+
+    return buf;
+}
+
+
+/* See log.h */
+void chilog_ethernet(loglevel_t level, const uint8_t *frame, size_t len,
+                     char prefix)
+{
+    if (level > loglevel)
         return;
 
-    ethhdr_t *header = (ethhdr_t *) frame;
-    uint8_t *payload = ETHER_PAYLOAD_START(frame);
-    uint16_t payload_len = len - sizeof(ethhdr_t);
+    const ethhdr_t *header = (const ethhdr_t *) frame;
+    const uint8_t *payload = ETHER_PAYLOAD_START(frame);
+    size_t payload_len = len - sizeof(ethhdr_t);
     uint16_t ethertype = ntohs(header->type);
 
     flockfile(stdout);
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
 
-    chilog(level, "%c  Src: %02X:%02X:%02X:%02X:%02X:%02X",
-           prefix,
-           header->src[0], header->src[1], header->src[2], header->src[3], header->src[4], header->src[5]);
-    chilog(level, "%c  Dst: %02X:%02X:%02X:%02X:%02X:%02X",
-           prefix,
-           header->dst[0], header->dst[1], header->dst[2], header->dst[3], header->dst[4], header->dst[5]);
+    chilog(level, "%c  Src: %02X:%02X:%02X:%02X:%02X:%02X", prefix,
+           header->src[0], header->src[1], header->src[2],
+           header->src[3], header->src[4], header->src[5]);
+    chilog(level, "%c  Dst: %02X:%02X:%02X:%02X:%02X:%02X", prefix,
+           header->dst[0], header->dst[1], header->dst[2],
+           header->dst[3], header->dst[4], header->dst[5]);
 
-    char *ethertype_str;
-    switch(ethertype)
+    const char *ethertype_str;
+    switch (ethertype)
     {
     case ETHERTYPE_IP:
         ethertype_str = "IPv4";
@@ -151,35 +184,35 @@ void chilog_ethernet(loglevel_t level, uint8_t *frame, int len, char prefix)
     }
     chilog(level, "%c  Ethertype: %04X (%s)", prefix, ethertype, ethertype_str);
 
-    if(payload_len > 0)
+    if (payload_len > 0)
     {
-        chilog(level, "%c  Payload (%i bytes):", prefix, payload_len);
+        chilog(level, "%c  Payload (%zu bytes):", prefix, payload_len);
         chilog_hex(level, payload, payload_len);
     }
     else
     {
         chilog(level, "%c  No Payload", prefix);
     }
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
     funlockfile(stdout);
 }
 
 
 /* See log.h */
-void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix)
+void chilog_arp(loglevel_t level, const arp_packet_t *arp, char prefix)
 {
-    if(level > loglevel)
+    if (level > loglevel)
         return;
 
     flockfile(stdout);
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
 
-    char *op_str;
-    if(ntohs(arp->op) == ARP_OP_REQUEST)
+    const char *op_str;
+    if (ntohs(arp->op) == ARP_OP_REQUEST)
     {
         op_str = "Request";
     }
-    else if(ntohs(arp->op) == ARP_OP_REPLY)
+    else if (ntohs(arp->op) == ARP_OP_REPLY)
     {
         op_str = "Reply";
     }
@@ -188,10 +221,11 @@ void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix)
         op_str = "Unknown";
     }
 
-    chilog(level, "%c  ARP operation type: %04X (%s)", prefix, ntohs(arp->op), op_str);
+    chilog(level, "%c  ARP operation type: %04X (%s)", prefix, ntohs(arp->op),
+           op_str);
 
-    char *hardwaretype_str;
-    if(ntohs(arp->hrd) == ARP_HRD_ETHERNET)
+    const char *hardwaretype_str;
+    if (ntohs(arp->hrd) == ARP_HRD_ETHERNET)
     {
         hardwaretype_str = "Ethernet";
     }
@@ -200,8 +234,8 @@ void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix)
         hardwaretype_str = "Other";
     }
 
-    char *protocoltype_str;
-    switch(ntohs(arp->pro))
+    const char *protocoltype_str;
+    switch (ntohs(arp->pro))
     {
     case ETHERTYPE_IP:
         protocoltype_str = "IPv4";
@@ -212,37 +246,38 @@ void chilog_arp(loglevel_t level, arp_packet_t* arp, char prefix)
     default:
         protocoltype_str = "Other";
     }
-    chilog(level, "%c  Hardware Type: %04X (%s)   Protocol Type: %04X (%s)", prefix, ntohs(arp->hrd), hardwaretype_str,
-                                                                                     ntohs(arp->pro), protocoltype_str);
+    chilog(level, "%c  Hardware Type: %04X (%s)   Protocol Type: %04X (%s)", prefix,
+           ntohs(arp->hrd), hardwaretype_str,
+           ntohs(arp->pro), protocoltype_str);
 
     char ip_str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &arp->spa, ip_str, INET_ADDRSTRLEN);
-    chilog(level, "%c  Sender: %02X:%02X:%02X:%02X:%02X:%02X  %s",
-           prefix,
-           arp->sha[0], arp->sha[1], arp->sha[2], arp->sha[3], arp->sha[4], arp->sha[5], ip_str);
+    chilog(level, "%c  Sender: %02X:%02X:%02X:%02X:%02X:%02X  %s", prefix,
+           arp->sha[0], arp->sha[1], arp->sha[2],
+           arp->sha[3], arp->sha[4], arp->sha[5], ip_str);
 
     inet_ntop(AF_INET, &arp->tpa, ip_str, INET_ADDRSTRLEN);
-    chilog(level, "%c  Target: %02X:%02X:%02X:%02X:%02X:%02X  %s",
-           prefix,
-           arp->tha[0], arp->tha[1], arp->tha[2], arp->tha[3], arp->tha[4], arp->tha[5], ip_str);
+    chilog(level, "%c  Target: %02X:%02X:%02X:%02X:%02X:%02X  %s", prefix,
+           arp->tha[0], arp->tha[1], arp->tha[2],
+           arp->tha[3], arp->tha[4], arp->tha[5], ip_str);
 
 
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
     funlockfile(stdout);
 }
 
 
 /* See log.h */
-void chilog_ip(loglevel_t level, iphdr_t* hdr, char prefix)
+void chilog_ip(loglevel_t level, const iphdr_t *hdr, char prefix)
 {
-    if(level > loglevel)
+    if (level > loglevel)
         return;
 
     flockfile(stdout);
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
 
-    char *proto_str;
-    switch(hdr->proto)
+    const char *proto_str;
+    switch (hdr->proto)
     {
     case IPPROTO_ICMP:
         proto_str = "ICMP";
@@ -264,23 +299,24 @@ void chilog_ip(loglevel_t level, iphdr_t* hdr, char prefix)
     chilog(level, "%c  Source:      %s", prefix, ip_src_str);
     chilog(level, "%c  Destination: %s", prefix, ip_dst_str);
     chilog(level, "%c  Protocol:    %02X (%s)", prefix, hdr->proto, proto_str);
-    chilog(level, "%c  TTL:         %i   Total Length: %i   Checksum: %04X", prefix, hdr->ttl, ntohs(hdr->len), hdr->cksum);
-    chilog(level, "   ######################################################################");
+    chilog(level, "%c  TTL:         %i   Total Length: %i   Checksum: %04X", prefix,
+           hdr->ttl, ntohs(hdr->len), hdr->cksum);
+    chilog(level, "%s", LOG_SEPARATOR);
     funlockfile(stdout);
 }
 
 
 /* See log.h */
-void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix)
+void chilog_icmp(loglevel_t level, const icmp_packet_t *icmp, char prefix)
 {
-    if(level > loglevel)
+    if (level > loglevel)
         return;
 
     flockfile(stdout);
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
 
-    char *type_str;
-    switch(icmp->type)
+    const char *type_str;
+    switch (icmp->type)
     {
     case ICMPTYPE_ECHO_REPLY:
         type_str = "Echo Reply";
@@ -299,10 +335,10 @@ void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix)
         break;
     }
 
-    if(icmp->type == ICMPTYPE_DEST_UNREACHABLE)
+    if (icmp->type == ICMPTYPE_DEST_UNREACHABLE)
     {
-        char *code_str;
-        switch(icmp->code)
+        const char *code_str;
+        switch (icmp->code)
         {
         case ICMPCODE_DEST_NET_UNREACHABLE:
             code_str = "Destination network unreachable";
@@ -320,78 +356,83 @@ void chilog_icmp(loglevel_t level, icmp_packet_t* icmp, char prefix)
             code_str = "Other";
             break;
         }
-        chilog(level, "%c  Type: %02X (%s)  Code: %02X (%s)", prefix, icmp->type, type_str, icmp->code, code_str);
+        chilog(level, "%c  Type: %02X (%s)  Code: %02X (%s)", prefix, icmp->type,
+               type_str, icmp->code, code_str);
     }
     else
     {
-        chilog(level, "%c  Type: %02X (%s)  Code: %02X", prefix, icmp->type, type_str, icmp->code);
+        chilog(level, "%c  Type: %02X (%s)  Code: %02X", prefix, icmp->type, type_str,
+               icmp->code);
     }
 
     chilog(level, "%c  Checksum: %04X", prefix, ntohs(icmp->chksum));
 
-    switch(icmp->type)
+    switch (icmp->type)
     {
     case ICMPTYPE_ECHO_REQUEST:
     case ICMPTYPE_ECHO_REPLY:
-        chilog(level, "%c  Identifier: %04X  Sequence Number: %04X", prefix, ntohs(icmp->echo.identifier), ntohs(icmp->echo.seq_num));
+        chilog(level, "%c  Identifier: %04X  Sequence Number: %04X", prefix,
+               ntohs(icmp->echo.identifier), ntohs(icmp->echo.seq_num));
         break;
     case ICMPTYPE_DEST_UNREACHABLE:
         break;
     }
 
-    chilog(level, "   ######################################################################");
+    chilog(level, "%s", LOG_SEPARATOR);
     funlockfile(stdout);
 }
 
-/* See log.h */
-// Based on http://stackoverflow.com/questions/7775991/how-to-get-hexdump-of-a-structure-data
-void chilog_hex (loglevel_t level, void *data, int len)
+
+/* See log.h
+ *
+ * Based on http://stackoverflow.com/questions/7775991/how-to-get-hexdump-of-a-structure-data */
+void chilog_hex(loglevel_t level, const void *data, size_t len)
 {
-    int i;
-    char buf[12];
-    char ascii[17];
-    char line[74];
-    uint8_t *pc = data;
+    size_t i;
+    char buf[24];
+    char ascii[HEXDUMP_BYTES_PER_LINE + 1];
+    char line[HEXDUMP_LINE_LEN];
+    const uint8_t *pc = data;
 
     line[0] = '\0';
-    // Process every byte in the data.
+    ascii[0] = '\0';
+    /* Process every byte in the data. */
     for (i = 0; i < len; i++)
     {
-        // Multiple of 16 means new line (with line offset).
-
-        if ((i % 16) == 0)
+        /* Start a new line (with the line offset) */
+        if ((i % HEXDUMP_BYTES_PER_LINE) == 0)
         {
-            // Just don't print ASCII for the zeroth line.
+            /* Just don't print ASCII for the zeroth line. */
             if (i != 0)
             {
                 chilog(level, "%s  %s", line, ascii);
                 line[0] = '\0';
             }
 
-            // Output the offset.
-            sprintf(buf, "  %04x ", i);
+            /* Output the offset. */
+            snprintf(buf, sizeof(buf), "  %04zx ", i);
             strcat(line, buf);
         }
 
-        // Now the hex code for the specific character.
-        sprintf(buf, " %02x", pc[i]);
+        /* Now the hex code for the specific character. */
+        snprintf(buf, sizeof(buf), " %02x", pc[i]);
         strcat(line, buf);
 
-        // And store a printable ASCII character for later.
-        if ((pc[i] < 0x20) || (pc[i] > 0x7e))
-            ascii[i % 16] = '.';
+        /* And store a printable ASCII character for later. */
+        if (isprint(pc[i]))
+            ascii[i % HEXDUMP_BYTES_PER_LINE] = pc[i];
         else
-            ascii[i % 16] = pc[i];
-        ascii[(i % 16) + 1] = '\0';
+            ascii[i % HEXDUMP_BYTES_PER_LINE] = '.';
+        ascii[(i % HEXDUMP_BYTES_PER_LINE) + 1] = '\0';
     }
 
-    // Pad out last line if not exactly 16 characters.
-    while ((i % 16) != 0)
+    /* Pad out the last line if it is not a full line */
+    while ((i % HEXDUMP_BYTES_PER_LINE) != 0)
     {
         strcat(line, "   ");
         i++;
     }
 
-    // And print the final ASCII bit.
+    /* And print the final ASCII bit. */
     chilog(level, "%s  %s", line, ascii);
 }
