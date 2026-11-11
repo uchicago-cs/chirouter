@@ -5,7 +5,7 @@
 
 from typing import Any
 
-from mininet.log import setLogLevel, info
+from mininet.log import setLogLevel, info, warn
 from mininet.cli import CLI
 from mininet.net import Mininet
 from mininet.util import quietRun
@@ -14,7 +14,7 @@ from chirouter.relay import ChirouterRelay, disable_offloads
 from chirouter.topology import Host, Topology
 
 
-def configure_host(net: Any, host: Host) -> None:
+def configure_host(net: Any, host: Host) -> dict[str, str]:
     '''
     Configures a host in the network: sets the IP address (and default
     gateway) of its interfaces and, if the host has the "httpd" attribute,
@@ -24,10 +24,13 @@ def configure_host(net: Any, host: Host) -> None:
       net (mininet.net.Mininet): the network.
       host (Host): the host.
 
-    Returns: nothing. Raises a ValueError if one of the host's interfaces
-    doesn't exist in the network.
+    Returns:
+      (dict of str to str) the interfaces whose offloads could not be
+      disabled, and the errors (see disable_offloads). Raises a ValueError
+      if one of the host's interfaces doesn't exist in the network.
     '''
     mn_host = net.get(host.name)
+    offload_errors: dict[str, str] = {}
 
     # Hosts are in their own network namespace, so the container-wide
     # IPv6 settings don't apply to them
@@ -41,7 +44,9 @@ def configure_host(net: Any, host: Host) -> None:
                              .format(host.name, iface_name))
 
         mn_host.intf(iface_name).setIP(iface.ip_with_prefixlen)
-        disable_offloads(mn_host, iface_name)
+        err = disable_offloads(mn_host, iface_name)
+        if err is not None:
+            offload_errors[iface_name] = err
 
         if iface.gateway is not None:
             mn_host.cmd("ip route add default via {} dev {}"
@@ -51,6 +56,30 @@ def configure_host(net: Any, host: Host) -> None:
         info("*** Starting web server on host %s\n" % mn_host.name)
         mn_host.cmd('nohup python3 ./scripts/webserver.py %s &'
                     % mn_host.name)
+
+    return offload_errors
+
+
+def warn_offload_errors(offload_errors: dict[str, str]) -> None:
+    '''
+    Prints a warning about the interfaces whose offloads could not be
+    disabled (if any).
+
+    Inputs:
+      offload_errors (dict of str to str): the interfaces and their errors
+        (see disable_offloads).
+
+    Returns: nothing.
+    '''
+    if not offload_errors:
+        return
+
+    errors = "; ".join(sorted(set(offload_errors.values())))
+    warn("*** Warning: Could not disable offloads on {} interfaces ({}): {}\n"
+         .format(len(offload_errors), ", ".join(offload_errors), errors))
+    warn("*** TCP and UDP traffic through the routers may not work (this is "
+         "expected if the\n*** container is running under emulation, e.g., "
+         "the arm64 image on an x86_64 computer)\n")
 
 
 def run(topo_file: str, chirouter_host: str, chirouter_port: int,
@@ -79,8 +108,9 @@ def run(topo_file: str, chirouter_host: str, chirouter_port: int,
 
     net = Mininet(topo=topo.to_mininet_topology(), controller=None)
 
+    offload_errors: dict[str, str] = {}
     for h in topo.hosts:
-        configure_host(net, h)
+        offload_errors.update(configure_host(net, h))
 
     # The relay needs to know the MAC addresses of the routers' interfaces
     # (which are assigned by Mininet)
@@ -90,6 +120,10 @@ def run(topo_file: str, chirouter_host: str, chirouter_port: int,
             intf.hwaddr = mn_router.intf(r.name + "-" + intf_name).MAC()
 
     net.start()
+
+    for r in topo.routers:
+        offload_errors.update(net.get(r.name).offload_errors)
+    warn_offload_errors(offload_errors)
 
     relay = ChirouterRelay(topo, chirouter_host, chirouter_port)
     try:

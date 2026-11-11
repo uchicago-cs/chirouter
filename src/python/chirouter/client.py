@@ -20,6 +20,18 @@ MSG_HDR_LEN = 4
 # Number of bytes to read from the socket at a time
 RECV_SIZE = 4096
 
+# Number of seconds to wait for chirouter's reply to the HELLO message.
+# chirouter only serves one connection at a time, so it won't reply if it
+# is already connected to another instance of Mininet.
+HELLO_TIMEOUT = 10
+
+
+class ChirouterNotRespondingError(OSError):
+    '''
+    Raised by ChirouterClient.connect when chirouter accepts the connection,
+    but does not reply to the HELLO message (or closes the connection).
+    '''
+
 
 class ChirouterMessage:
     '''
@@ -378,12 +390,29 @@ class ChirouterClient:
         routers in the topology. The MAC addresses of the routers' interfaces
         must already be set in the topology.
 
-        Raises OSError if chirouter cannot be reached.
+        Raises ChirouterNotRespondingError if chirouter does not reply to
+        the HELLO message within HELLO_TIMEOUT seconds (or closes the
+        connection), and OSError if chirouter cannot be reached.
         '''
         self.conn = socket.create_connection((self.hostname, self.port))
 
-        self.send_msg(ChirouterMessageHello(from_router=False))
-        next(self.received_messages)
+        self.conn.settimeout(HELLO_TIMEOUT)
+        try:
+            self.send_msg(ChirouterMessageHello(from_router=False))
+            reply = next(self.received_messages, None)
+        except TimeoutError:
+            reply = None
+        except OSError:
+            self.conn.close()
+            raise
+        self.conn.settimeout(None)
+
+        if reply is None:
+            self.conn.close()
+            raise ChirouterNotRespondingError(
+                "chirouter accepted the connection, but did not reply to the "
+                "HELLO message (is it already connected to another instance "
+                "of Mininet?)")
 
         self.send_msg(ChirouterMessageRouters(self.topology.num_routers))
 

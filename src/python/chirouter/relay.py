@@ -44,18 +44,34 @@ CLOSE_TIMEOUT = 1.0
 OFFLOADS = ["rx", "tx", "sg", "tso", "gso", "gro", "lro"]
 
 
-def disable_offloads(node: Any, intf: Any) -> None:
+def disable_offloads(node: Any, intf: Any) -> str | None:
     '''
     Disables offloads (see OFFLOADS) on an interface.
+
+    This fails when the container runs under QEMU emulation (e.g., the arm64
+    image on an x86_64 computer), since QEMU doesn't support the ioctl used
+    by ethtool. In that case, the frames sent by the hosts may have
+    incorrect TCP/UDP checksums, so TCP and UDP traffic through the routers
+    won't work (see simulator.warn_offload_errors).
 
     Inputs:
       node (mininet.node.Node): the node the interface belongs to.
       intf (mininet.link.Intf or str): the interface.
 
-    Returns: nothing.
+    Returns:
+      (str | None) None if the offloads were disabled, or a description
+      of the error (ethtool's output) if they weren't.
     '''
     offloads = " ".join(f"{o} off" for o in OFFLOADS)
-    node.cmd("ethtool -K {} {}".format(intf, offloads))
+    output = node.cmd("ethtool -K {} {} 2>&1; echo $?".format(intf, offloads))
+
+    # The last line of the output is ethtool's exit status
+    lines = output.strip().splitlines()
+    if lines and lines[-1].strip() == "0":
+        return None
+
+    details = " ".join(line.strip() for line in lines[:-1])
+    return details or "ethtool failed"
 
 
 class RouterNode(Switch):
@@ -69,13 +85,16 @@ class RouterNode(Switch):
     def start(self, controllers: list[Any]) -> None:
         '''
         Configures the router's interfaces and brings them up (called by
-        Mininet when the network is started).
+        Mininet when the network is started). The interfaces whose offloads
+        cannot be disabled are recorded in the offload_errors attribute
+        (a dictionary mapping interface names to error descriptions).
 
         Inputs:
           controllers (list): OpenFlow controllers (ignored).
 
         Returns: nothing.
         '''
+        self.offload_errors: dict[str, str] = {}
         for intf in self.intfList():
             if self.name in intf.name:
                 # These interfaces are in the container's root namespace,
@@ -88,7 +107,9 @@ class RouterNode(Switch):
                                "ipv4.conf.{}.arp_ignore=8"):
                     self.cmd("sysctl -q -w net." + sysctl.format(intf))
                 self.cmd("ip addr flush dev", intf)
-                disable_offloads(self, intf)
+                err = disable_offloads(self, intf)
+                if err is not None:
+                    self.offload_errors[str(intf)] = err
                 self.cmd("ip link set", intf, "up")
 
     def connected(self) -> bool:
